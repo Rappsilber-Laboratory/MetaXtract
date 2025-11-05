@@ -1,0 +1,58 @@
+MS1:
+  Ion Injection Time (ms): false
+  Total Number of Peaks: false
+  Total Ion Current: false
+  Retention Time (s): false
+  Base Peak Intensity: false
+  Base Peak Mass: false
+  Multi Inject Info: false
+  Multiple Injection: false
+
+MS2:
+  Total Ion Current: true
+  Total Number of Peaks: false
+  Number of Channels: false
+  Frequency: false
+  Collision Energy: false
+  Retention Time (s): false
+  Mass Ranges: false
+  Precursor Intensity: false
+  Scan Description: false
+  AGC: false
+  Micro Scan Count: false
+  Ion Injection Time (ms): false
+  Elapsed Scan Time (sec): false
+  Activation Type: false
+  Mass Analyzer Type: false
+  Detector Type: false
+  Base Peak Mass: false
+  Average Scan by Inst: false
+  Orbitrap Resolution: false
+  API Process Delay: true
+  Dependency Type: false
+  Multi Inject Info: false
+  Base Peak Intensity: false
+  Master Scan Number: false
+  Monoisotopic M/Z: false
+  Charge State: false
+  HCD Energy: false
+  HCD Energy eV: false
+  MS2 Isolation Width: false
+  Access ID: false
+  Conversion Parameter I: false
+  Conversion Parameter A: false
+  Conversion Parameter B: false
+  Conversion Parameter C: false
+  Conversion Parameter D: false
+  Conversion Parameter E: false
+  Temperature Comp. (ppm): false
+  RF Comp. (ppm): false
+  Space Charge Comp. (ppm): false
+  Resolution Comp. (ppm): false
+  Number of LM Found: false
+  LM Correction (ppm): false
+  RawOvFtT: false
+  Injection t0: false
+  Reagent Ion Injection Time (ms): false
+  FAIMS Voltage On: false
+  FAIMS CV: false
