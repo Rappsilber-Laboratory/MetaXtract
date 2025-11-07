@@ -1,5 +1,5 @@
-# SpectraXceed
-The **SpectraXceed** is a hybrid tool that can be used through a **Graphical User Interface (GUI)** or as a **Command Line Interface (CLI)** to extract and visualize data from Thermo RAW files.
+# MetaXtract
+The **MetaXtract** is a hybrid tool that can be used through a **Graphical User Interface (GUI)** or as a **Command Line Interface (CLI)** to extract and visualize data from Thermo RAW files.
 
 ## **Features**
 
@@ -11,20 +11,20 @@ The **SpectraXceed** is a hybrid tool that can be used through a **Graphical Use
 
 ## **Installation**
 
-Download the latest version from the [Releases](https://github.com/Rappsilber-Laboratory/SpectraXceed/releases) page.
+Download the latest version from the [Releases](https://github.com/Rappsilber-Laboratory/MetaXtract/releases) page.
 
 ## **Usage**
 
 ### **1. GUI Mode**
 
-Double-click the `SpectraXceed_vX.X.X.exe` to launch the graphical interface.
+Double-click the `MetaXtract_vX.X.X.exe` to launch the graphical interface.
 
 ### **2. Command Line Mode**
 
 The tool can be executed directly via the command line for automated processing using Windows PowerShell.
 
 ```sh
-SpectraXceed.v0.3.0.exe --input <RAW_FILES> --output-dir <OUTPUT_DIRECTORY> [OPTIONS]
+MetaXtract.v0.3.0.exe --input <RAW_FILES> --output-dir <OUTPUT_DIRECTORY> [OPTIONS]
 ```
 
 ### **Command Line Arguments**
@@ -44,7 +44,7 @@ SpectraXceed.v0.3.0.exe --input <RAW_FILES> --output-dir <OUTPUT_DIRECTORY> [OPT
 ### **Example Command:**
 
 ```sh
-SpectraXceed.vx.x.x.exe --input C:\data\file1.raw C:\data\file2.raw --output-dir C:\output --file-based-details --graphical-representation --config config.yml --ms-method --lc-method --complete-ms2 --complete-ms1
+MetaXtract.vx.x.x.exe --input C:\data\file1.raw C:\data\file2.raw --output-dir C:\output --file-based-details --graphical-representation --config config.yml --ms-method --lc-method --complete-ms2 --complete-ms1
 ```
 
 ## **Output Formats**
@@ -58,6 +58,6 @@ SpectraXceed.vx.x.x.exe --input C:\data\file1.raw C:\data\file2.raw --output-dir
 This project is licensed under the Apache-2.0 license.
 ### Third-party licenses and copyright
 
-**RawFileReader** reading tool. Copyright © 2016 by Thermo Fisher Scientific, Inc. All rights reserved. See [THERMO_LICENSE.txt](https://github.com/lutfia95/SpectraXceed/blob/main/os_data/THERMO_LICENSE.txt) for licensing information. 
-Note: anyone recieving RawFileReader as part of a larger software distribution (in the current context, as part of SpectraXceed) is considered an "end user" under 
+**RawFileReader** reading tool. Copyright © 2016 by Thermo Fisher Scientific, Inc. All rights reserved. See [THERMO_LICENSE.txt](https://github.com/lutfia95/MetaXtract/blob/main/os_data/THERMO_LICENSE.txt) for licensing information. 
+Note: anyone recieving RawFileReader as part of a larger software distribution (in the current context, as part of MetaXtract) is considered an "end user" under 
 section 3.3 of the RawFileReader License, and is not granted rights to redistribute RawFileReader.
