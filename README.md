@@ -5,7 +5,7 @@
 
 </div>
 
-The **MetaXtract** is a hybrid tool that can be used through a **Graphical User Interface (GUI)** or as a **Command Line Interface (CLI)** to extract and visualize data from Thermo RAW files.
+**MetaXtract** is a hybrid tool that can be used through a **Graphical User Interface (GUI)** or as a **Command Line Interface (CLI)** to extract and visualize data from Thermo RAW files.
 
 ## **Features**
 
