@@ -1,4 +1,9 @@
 # MetaXtract
+<div align="center">
+
+[![bioRxiv](https://img.shields.io/badge/biorxiv-2025.11.12.687968v1-b31b1b)](https://www.biorxiv.org/content/10.1101/2025.11.12.687968v1)&nbsp;
+
+</div>
 The **MetaXtract** is a hybrid tool that can be used through a **Graphical User Interface (GUI)** or as a **Command Line Interface (CLI)** to extract and visualize data from Thermo RAW files.
 
 ## **Features**
