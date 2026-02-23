@@ -1,0 +1,40 @@
+Section	Key	Value
+File	RAW File Name	C:\Users\yynk1\Desktop\thermo_reader\github\MetaXtract\github_private\MetaXtract\data\small.RAW
+File	User ID	LTQ
+File	File Creation Date	07/20/2005 14:44:22
+Instrument	Instrument Name	LTQ FT
+Counts	Number of MS2 Scans (centroid)	34
+Counts	Number of MS2 Scans (profile)	0
+Counts	Number of MS1 Scans	14
+Counts	Total Number of Scans	48
+Run	Start Time	0.004935
+Run	End Time	0.48723666666666665
+Run	Lowest Mass	140.0
+Run	Highest Mass	2000.0
+Run	Mass Resolution	0.5
+Run	Highest Integrated Intensity	22136832.0
+Run	Highest Base Peak	0.0
+Instrument Details	Instrument Model	LTQ FT
+Instrument Details	Instrument Serial Number	SN06061F
+Instrument Details	Instrument Name	LTQ FT
+Instrument Details	Software Version	1.1 Beta 7
+Instrument Details	Hardware Version	
+Sample	sample.name	
+Sample	sample.id	1
+Sample	user.comment	
+Sample	user.text	"["""", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """"]"
+Sample	sample.volume	0.0
+Sample	sample.weight	0.0
+Sample	sample.type	Unknown
+Sample	processing.method.file	
+Sample	original.path	C:\Data\20050720-aInfusionsForDarren\
+Sample	row.number	2
+Sample	ISTD.amount	0.0
+Sample	calibration.file	
+Sample	instrument.method.file	C:\Xcalibur\methods\20050720_idv_AnalyzeInfusion.meth
+Sample	bulk.dilution.factor	1.0
+Sample	calibration.level	
+Sample	barcode.status	NotRead
+Sample	barcode	
+Sample	injection.volume	0.0
+Sample	vial	1a1

@@ -1,0 +1,9 @@
+pride:
+  url: "ftp://ftp.pride.ebi.ac.uk/pride/data/archive"
+  year: 2025
+  month: 1
+  max_files: 2
+  copy_dir: "results/data"
+
+output_dir: "results"
+

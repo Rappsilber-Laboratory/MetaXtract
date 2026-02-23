@@ -1,0 +1,237 @@
+configfile: "config.yaml"
+
+from pathlib import Path
+from urllib.parse import urlparse
+import json, time, csv, statistics
+
+OUT_DIR    = Path(config["output_dir"])
+COPY_DIR   = Path(config["pride"]["copy_dir"])
+PRIDE_URL  = str(config["pride"]["url"]).rstrip("/")
+PRIDE_YEAR = int(config["pride"]["year"])
+PRIDE_MONTH = str(config["pride"].get("month", 1)).zfill(2)
+MAX_FILES  = int(config["pride"]["max_files"])
+
+OUT_DIR_STR  = str(OUT_DIR).replace("\\", "/")
+COPY_DIR_STR = str(COPY_DIR).replace("\\", "/")
+
+def _samples_from_manifest(manifest_path: Path):
+    names = set()
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8")) or {}
+        for rec in data.get("copied", []):
+            if rec.get("sample"):
+                names.add(str(rec["sample"]))
+            elif rec.get("dst"):
+                names.add(Path(rec["dst"]).stem)
+            elif rec.get("path"):
+                names.add(Path(rec["path"]).stem)
+    except Exception:
+        pass
+    for p in COPY_DIR.glob("*.raw"):
+        names.add(p.stem)
+    return sorted(names)
+
+def out_info(sample: str) -> str:
+    return f"{OUT_DIR_STR}/metaxtract/{sample}/{sample}_info.tsv"
+
+def out_ms(sample: str) -> str:
+    return f"{OUT_DIR_STR}/metaxtract/{sample}/{sample}_MS_method.txt"
+
+def out_lc(sample: str) -> str:
+    return f"{OUT_DIR_STR}/metaxtract/{sample}/{sample}_LC_method.txt"
+
+rule all:
+    input:
+        f"{OUT_DIR_STR}/runtime/runtime_summary.txt"
+
+rule _start_clock:
+    output:
+        f"{OUT_DIR_STR}/runtime/_start.timestamp"
+    run:
+        Path(f"{OUT_DIR_STR}/runtime").mkdir(parents=True, exist_ok=True)
+        Path(output[0]).write_text(str(int(time.time())), encoding="utf-8")
+
+checkpoint fetch_pride_raws:
+    input:
+        f"{OUT_DIR_STR}/runtime/_start.timestamp"
+    output:
+        manifest=f"{OUT_DIR_STR}/runtime/manifest.json",
+        flag=f"{OUT_DIR_STR}/runtime/_fetch_done.flag"
+    benchmark:
+        f"{OUT_DIR_STR}/runtime/benchmark_download.tsv"
+    run:
+        from ftplib import FTP
+
+        COPY_DIR.mkdir(parents=True, exist_ok=True)
+        url = urlparse(PRIDE_URL)
+        host, base = url.hostname, url.path
+        month_dir = f"{base}/{PRIDE_YEAR}/{PRIDE_MONTH}"
+
+        files = []
+        try:
+            with FTP(host, timeout=30) as ftp:
+                ftp.login()
+                try:
+                    ftp.voidcmd("OPTS MLST type;size;modify;")
+                    entries = list(ftp.mlsd(month_dir))
+                except Exception:
+                    entries = []
+                    ftp.cwd(month_dir)
+                    tmp = []
+                    ftp.retrlines("LIST", tmp.append)
+                    for line in tmp:
+                        parts = line.split(maxsplit=8)
+                        if len(parts) < 9:
+                            continue
+                        name = parts[8]
+                        kind = "dir" if line.startswith("d") else "file"
+                        entries.append((name, {"type": kind}))
+
+                project_dirs = [name for name, meta in entries if meta.get("type") == "dir"]
+
+                for proj in project_dirs:
+                    proj_path = f"{month_dir}/{proj}"
+                    try:
+                        try:
+                            ftp.voidcmd("OPTS MLST type;size;modify;")
+                            sub = list(ftp.mlsd(proj_path))
+                        except Exception:
+                            sub = []
+                            ftp.cwd(proj_path)
+                            tmp = []
+                            ftp.retrlines("LIST", tmp.append)
+                            for line in tmp:
+                                parts = line.split(maxsplit=8)
+                                if len(parts) < 9:
+                                    continue
+                                name = parts[8]
+                                kind = "dir" if line.startswith("d") else "file"
+                                size = parts[4] if len(parts) > 4 else "0"
+                                sub.append((name, {"type": kind, "size": size}))
+                        for name, meta in sub:
+                            if name.lower().endswith(".raw"):
+                                files.append(
+                                    {
+                                        "path": f"{proj_path}/{name}",
+                                        "size": int(meta.get("size", "0") or 0),
+                                        "sample": Path(name).stem,
+                                    }
+                                )
+                    except Exception:
+                        pass
+        except Exception:
+            files = []
+
+        files.sort(key=lambda x: x["path"], reverse=True)
+        pick = files if MAX_FILES == 0 else files[:MAX_FILES]
+
+        copied = []
+        try:
+            with FTP(host, timeout=60) as ftp:
+                ftp.login()
+                for rec in pick:
+                    dst = COPY_DIR / Path(rec["path"]).name
+                    if not dst.exists() or (rec["size"] and dst.stat().st_size != rec["size"]):
+                        print("Downloading", rec["path"])
+                        with open(dst, "wb") as fh:
+                            ftp.retrbinary(f"RETR {rec['path']}", fh.write)
+                    copied.append({"src": rec["path"], "dst": str(dst), "sample": rec["sample"]})
+        except Exception:
+            copied = []
+
+        manifest = {
+            "requested": MAX_FILES,
+            "available": len(files),
+            "copied_count": len(copied),
+            "copied": copied,
+            "year": PRIDE_YEAR,
+            "month": int(PRIDE_MONTH),
+        }
+        Path(output.manifest).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        Path(output.flag).write_text("ok", encoding="utf-8")
+
+def analysis_targets(wc):
+    ck = checkpoints.fetch_pride_raws.get(**wc)
+    manifest_path = Path(ck.output.manifest)
+    samples = _samples_from_manifest(manifest_path)
+    targets = []
+    for s in samples:
+        targets.append(out_info(s))
+        targets.append(out_ms(s))
+        targets.append(out_lc(s))
+    return targets
+
+rule analyze_one:
+    input:
+        raw=lambda wc: f"{COPY_DIR_STR}/{wc.sample}.raw",
+        manifest=f"{OUT_DIR_STR}/runtime/manifest.json",
+        done=f"{OUT_DIR_STR}/runtime/_fetch_done.flag"
+    output:
+        info=out_info("{sample}"),
+        ms=out_ms("{sample}"),
+        lc=out_lc("{sample}")
+    benchmark:
+        f"{OUT_DIR_STR}/runtime/benchmark_analyze_{{sample}}.tsv"
+    run:
+        from pathlib import Path
+        from raw_parser import MetaXtract
+        from cli_parser import write_info_tsv, remove_empty_lines
+
+        sample = wildcards.sample
+        outdir = OUT_DIR / "metaxtract" / sample
+        outdir.mkdir(parents=True, exist_ok=True)
+
+        raw = MetaXtract(input.raw)
+
+        write_info_tsv(raw, output.info)
+
+        with open(output.ms, "w", encoding="utf-8", errors="replace") as f:
+            f.write(raw.GetMSMethod() or "")
+        remove_empty_lines(output.ms)
+
+        with open(output.lc, "w", encoding="utf-8", errors="replace") as f:
+            f.write(raw.GetLCMethod() or "")
+        remove_empty_lines(output.lc)
+
+        raw.CloseRAWFile()
+
+        try:
+            Path(input.raw).unlink()
+        except Exception:
+            pass
+
+rule summarize_runtime:
+    input:
+        start=f"{OUT_DIR_STR}/runtime/_start.timestamp",
+        fetch_bench=f"{OUT_DIR_STR}/runtime/benchmark_download.tsv",
+        analyzed=analysis_targets,
+        analysis_benches=lambda wc: [str(p).replace("\\", "/") for p in (OUT_DIR / "runtime").glob("benchmark_analyze_*.tsv")]
+    output:
+        f"{OUT_DIR_STR}/runtime/runtime_summary.txt"
+    run:
+        start_ts = int(Path(input.start).read_text().strip()) if Path(input.start).exists() else int(time.time())
+        overall = int(time.time()) - start_ts
+
+        def read_wall(tsv):
+            try:
+                with open(tsv, newline="") as f:
+                    rdr = csv.DictReader(f, delimiter="\t")
+                    row = next(rdr)
+                    return float(row.get("wallclock", 0.0))
+            except Exception:
+                return 0.0
+
+        dl = read_wall(input.fetch_bench)
+        walls = [read_wall(p) for p in input.analysis_benches]
+        total = sum(walls)
+        mean = statistics.mean(walls) if walls else 0.0
+
+        outp = Path(output[0])
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        with open(outp, "w", encoding="utf-8") as f:
+            f.write("=== Runtime Summary ===\n")
+            f.write(f"overall_pipeline: {overall}\n")
+            f.write(f"download_only: {dl:.3f}\n")
+            f.write(f"analysis_total: {total:.3f}\n")
+            f.write(f"analysis_per_file_mean: {mean:.3f}\n")
+            f.write(f"analysis_files_count: {len(walls)}\n")

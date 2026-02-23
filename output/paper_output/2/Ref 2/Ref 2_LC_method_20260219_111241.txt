@@ -1,0 +1,163 @@
+---- Overview ----
+Name: New Instrument Method
+Comment: 
+Run time: 67.000 [min]
+Instrument: HF on desktop-n0vi5p3
+Description: 
+---- Script ----
+initial     Instrument Setup
+            Sampler.LowDispersionMode: Off
+            Sampler.WashSpeed: 4.000 [µl/s]
+            Sampler.WashVolume: 75.000 [µl]
+            Sampler.PunctureDepth: 8.000 [mm]
+            Sampler.SampleHeight: 1.500 [mm]
+            Sampler.WasteSpeed: 4.000 [µl/s]
+            Sampler.DispenseDelay: 2.000 [s]
+            Sampler.DispSpeed: 2.000 [µl/s]
+            Sampler.DrawSpeed: 0.200 [µl/s]
+            Sampler.DrawDelay: 5.000 [s]
+            Sampler.RinseBetweenReinjections: Yes
+            Sampler.InjectMode: UserProg
+            Sampler.LoopWashFactor: 2.000
+            Sampler.PumpDevice: "NC_Pump"
+            Sampler.PrepVial: RB1
+            Sampler.ReagentAVial: G1
+            Sampler.ReagentBVial: G2
+            Sampler.ReagentCVial: R3
+            Sampler.ReagentDVial: R4
+            Sampler.ReagentEVial: B1
+            Sampler.ReagentFVial: B2
+            Sampler.ReagentGVial: B3
+            Sampler.ReagentHVial: B4
+            Sampler.TempCtrl: On
+            Sampler.Temperature.Nominal: 8.0 [°C]
+            Sampler.ReadyTempDelta: None
+            Sampler.Temperature.LowerLimit: 4.0 [°C]
+            Sampler.Temperature.UpperLimit: 9.0 [°C]
+            PumpModule.LoadingPump.%A.Equate: "%A"
+            PumpModule.LoadingPump.%B.Equate: "%B"
+            PumpModule.LoadingPump.%C.Equate: "%C"
+            PumpModule.LoadingPump.Pressure.LowerLimit: 0 [bar]
+            PumpModule.LoadingPump.Pressure.UpperLimit: 500 [bar]
+            PumpModule.LoadingPump.MaximumFlowRampUp: 10 [µl/min²]
+            PumpModule.LoadingPump.MaximumFlowRampDown: 10 [µl/min²]
+            PumpModule.NC_Pump.%A.Equate: "%A"
+            PumpModule.NC_Pump.%B.Equate: "%B"
+            PumpModule.NC_Pump.Pressure.LowerLimit: 0 [bar]
+            PumpModule.NC_Pump.Pressure.UpperLimit: 800 [bar]
+            PumpModule.NC_Pump.MaximumFlowRampUp: 0.300 [µl/min²]
+            PumpModule.NC_Pump.MaximumFlowRampDown: 0.300 [µl/min²]
+            ColumnOven.TempCtrl: Off
+            Sampler.UdpInjectValve Load
+            Sampler.UdpSyringeValve Needle
+            Sampler.UdpDraw ReagentAVial,
+                            25.000 [µl],
+                            GlobalSpeed,
+                            GlobalHeight
+            Sampler.UdpMixWait 10 [s]
+            Sampler.UdpSyringeValve Waste
+            Sampler.UdpMoveSyringeHome GlobalSpeed
+            Sampler.UdpSyringeValve Needle
+            Sampler.UdpDraw SampleVial,
+                            Volume,
+                            GlobalSpeed,
+                            GlobalHeight
+            Sampler.UdpMixWait 5 [s]
+            Sampler.UdpDraw ReagentAVial,
+                            2.900 [µl],
+                            GlobalSpeed,
+                            GlobalHeight
+            Sampler.UdpMixWait 5 [s]
+            Sampler.UdpInjectValve Inject
+            Sampler.UdpMixWait (Volume/NC_pump.flow)*60*1.1
+            Sampler.UdpInjectValve Load
+            Sampler.UdpInjectMarker 
+            Sampler.UdpMixNeedleWash 50.000 [µl]
+            Sampler.UdpSyringeValve Needle
+            Sampler.UdpDraw ReagentBVial,
+                            25.000 [µl],
+                            GlobalSpeed,
+                            GlobalHeight
+            Sampler.UdpDispense Drain,
+                                25.000 [µl],
+                                GlobalSpeed,
+                                GlobalHeight
+            Sampler.UdpDraw ReagentBVial,
+                            25.000 [µl],
+                            GlobalSpeed,
+                            GlobalHeight
+            Sampler.UdpDispense Drain,
+                                25.000 [µl],
+                                GlobalSpeed,
+                                GlobalHeight
+            Sampler.UdpDraw ReagentAVial,
+                            25.000 [µl],
+                            GlobalSpeed,
+                            GlobalHeight
+            Sampler.UdpDispense Drain,
+                                25.000 [µl],
+                                GlobalSpeed,
+                                GlobalHeight
+            Sampler.UdpDraw ReagentAVial,
+                            25.000 [µl],
+                            GlobalSpeed,
+                            GlobalHeight
+            Sampler.UdpDispense Drain,
+                                25.000 [µl],
+                                GlobalSpeed,
+                                GlobalHeight
+            Sampler.UdpSyringeValve Waste
+            Sampler.UdpMoveSyringeHome GlobalSpeed
+            Sampler.UdpMixNeedleWash 50.000 [µl]
+            Sampler.UdpSyringeValve Waste
+            Sampler.UdpMoveSyringeHome GlobalSpeed
+0.000 [min] Equilibration
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 2.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+0.000 [min] Inject Preparation
+            Wait Sampler.Ready And PumpModule.LoadingPump.Ready And PumpModule.NC_Pump.Ready And ColumnOven.Ready
+0.000 [min] Inject
+            Sampler.Inject 
+0.000 [min] Start Run
+            PumpModule.LoadingPump.LoadingPump_Pressure.AcqOn 
+            PumpModule.NC_Pump.NC_Pump_Pressure.AcqOn 
+0.000 [min] Run
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 2.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+5.100 [min]
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 2.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+10.000 [min]
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 9.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+40.000 [min]
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 31.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+45.000 [min]
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 44.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+47.000 [min]
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 95.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+52.000 [min]
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 95.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+53.000 [min]
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 2.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+67.000 [min]
+            PumpModule.NC_Pump.Flow.Nominal: 0.250 [µl/min]
+            PumpModule.NC_Pump.%B.Value: 2.0 [%]
+            PumpModule.NC_Pump.Curve: 5
+67.000 [min] Stop Run
+            PumpModule.LoadingPump.LoadingPump_Pressure.AcqOff 
+            PumpModule.NC_Pump.NC_Pump_Pressure.AcqOff 

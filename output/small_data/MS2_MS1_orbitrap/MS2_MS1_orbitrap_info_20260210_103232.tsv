@@ -1,0 +1,40 @@
+Section	Key	Value
+File	RAW File Name	C:\Users\yynk1\Desktop\thermo_reader\github\MetaXtract\github_private\MetaXtract\data\MS2_MS1_orbitrap.raw
+File	User ID	HF
+File	File Creation Date	09/20/2024 11:36:09
+Instrument	Instrument Name	Orbitrap Fusion Lumos
+Counts	Number of MS2 Scans (centroid)	68
+Counts	Number of MS2 Scans (profile)	0
+Counts	Number of MS1 Scans	77
+Counts	Total Number of Scans	145
+Run	Start Time	100.00259605201667
+Run	End Time	100.55847217601666
+Run	Lowest Mass	120.0
+Run	Highest Mass	2000.0
+Run	Mass Resolution	0.5
+Run	Highest Integrated Intensity	27111090176.0
+Run	Highest Base Peak	0.0
+Instrument Details	Instrument Model	Orbitrap Fusion Lumos
+Instrument Details	Instrument Serial Number	FSN20113
+Instrument Details	Instrument Name	Orbitrap Fusion Lumos
+Instrument Details	Software Version	3.1.2412.25
+Instrument Details	Hardware Version	
+Sample	sample.name	
+Sample	sample.id	
+Sample	user.comment	
+Sample	user.text	"["""", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """"]"
+Sample	sample.volume	0.0
+Sample	sample.weight	0.0
+Sample	sample.type	Unknown
+Sample	processing.method.file	
+Sample	original.path	
+Sample	row.number	1
+Sample	ISTD.amount	0.0
+Sample	calibration.file	
+Sample	instrument.method.file	
+Sample	bulk.dilution.factor	0.0
+Sample	calibration.level	
+Sample	barcode.status	NotRead
+Sample	barcode	
+Sample	injection.volume	0.0
+Sample	vial	

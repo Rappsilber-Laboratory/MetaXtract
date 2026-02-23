@@ -1,0 +1,16 @@
+Creator:       LTQ
+Last modified: 7/20/2005 2:44:09 PM by LTQ
+General:
+  Solvent A name:                
+  Solvent B name:                
+  Solvent C name:                
+  Solvent D name:                
+  Column name:                   
+  Min. Pressure, PSI:            0
+  Max. Pressure, PSI:            3500
+  Pumping Efficiency, %:         100
+  Fractionations/Filling Stroke: 1
+  Use custom stability limits:   No
+Gradient Program:
+  No.    Time, min    Flow, µl/min    A, %    B, %    C, %    D, %
+    1         0.00               1      95       5       0       0         
