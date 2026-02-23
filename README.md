@@ -121,6 +121,7 @@ Each allows: Selecting individual columns or Select all (complete MS1 / MS2).
 - **Export MS2 extended peak list (Parquet):** Per scan; `mz_array`, `intensity_array`, `resolution_array`, `noises_array`, `baselines_array`, `charges_array`.
 - **Export MS1 peak list (Parquet):** Per scan; `mz_array`, `intensity_array` with centroid/profile flag.
 
+Check the [documentation](Doc/Doc.pdf) for more details. 
 #### Visualisation
 Interactive Plotly HTML reports, MS1 and MS2 trends, and Cross-sample overlays and boxplots.
 
