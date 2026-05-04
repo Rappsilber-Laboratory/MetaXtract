@@ -85,6 +85,7 @@ def extract_scan_header_to_csv(raw_parser, output_dir, selected_options, single_
             "Collision Energy": lambda sn: raw_parser.GetCollisionEnergyForScanNumber(sn),
             "Retention Time (s)": lambda sn: raw_parser.GetRetentionTimeFromScanNumber(sn),
             "Mass Ranges": lambda sn: raw_parser.GetMassRangeFromScanNumber(sn, 1),
+            "Scan Mode": lambda sn: raw_parser.GetScanModeFromScanNumber(sn),
             "Precursor Intensity": lambda sn: raw_parser.GetPrecursorIntensityFromScanNumber(sn),
             "Base Peak Mass": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[0],
             "Base Peak Intensity": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[1],
@@ -151,6 +152,7 @@ def extract_scan_header_to_csv_ms1(raw_parser, output_dir, selected_options, sin
             "Base Peak Mass": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[0],
             "Base Peak Intensity": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[1],
             "Ion Injection Time (ms)": lambda sn: raw_parser.GetIonInjectionTimeFromScanNumber(sn),
+            "Scan Mode": lambda sn: raw_parser.GetScanModeFromScanNumber(sn),
         }
 
         with open(csv_file_path, mode="w", newline="", encoding="utf-8", errors="replace") as csv_file:
@@ -193,6 +195,46 @@ def extract_scan_header_to_csv_ms1(raw_parser, output_dir, selected_options, sin
     except Exception as e:
         print(f"[ERROR] Failed to generate MS1 CSV: {e}")
         return None
+
+def extract_technical_details_to_csv(raw_parser, output_dir, single_file_name, ms_order: int):
+    try:
+        csv_file_path = (
+            f"{output_dir}/{single_file_name}_technical_details_ms{ms_order}_"
+            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+        rows = []
+        columns = ["Scan Number", "RAW File"]
+        seen_columns = set(columns)
+
+        num_scans = raw_parser.NumSpectra
+        for scan_number in range(1, num_scans + 1):
+            scan_ms_order = int(raw_parser.GetMSOrder(scan_number))
+            if scan_ms_order != ms_order:
+                continue
+
+            info = raw_parser.GetMoreMSInfos(scan_number) or {}
+            if not isinstance(info, dict):
+                info = {}
+
+            row = {"Scan Number": scan_number, "RAW File": single_file_name}
+            for key, value in info.items():
+                if key in ("Scan Number", "RAW File"):
+                    continue
+                if key not in seen_columns:
+                    seen_columns.add(key)
+                    columns.append(key)
+                row[key] = value
+            rows.append(row)
+
+        with open(csv_file_path, mode="w", newline="", encoding="utf-8", errors="replace") as csv_file:
+            csv_writer = csv.writer(csv_file)
+            csv_writer.writerow(columns)
+            for row in rows:
+                csv_writer.writerow([_tsv_safe(row.get(col, "N/A")) for col in columns])
+
+        print(f"[INFO] Technical details (MS{ms_order}) saved to {csv_file_path}")
+    except Exception as e:
+        print(f"[ERROR] Failed to generate MS{ms_order} technical details CSV: {e}")
 
 def _tsv_safe(v):
     if v is None:
@@ -265,6 +307,12 @@ def run_cli(args):
     lc_method = bool(getattr(args, "lc_method", False) or cfg_outputs.get("lc_method", False))
     ms2_peaklist_export = bool(getattr(args, "ms2_peaklist_export", False) or cfg_outputs.get("ms2_peaklist_export", False))
     ms1_peaklist_export = bool(getattr(args, "ms1_peaklist_export", False) or cfg_outputs.get("ms1_peaklist_export", False))
+    ms2_technical_details_export = bool(
+        getattr(args, "ms2_technical_details_export", False) or cfg_outputs.get("ms2_technical_details_export", False)
+    )
+    ms1_technical_details_export = bool(
+        getattr(args, "ms1_technical_details_export", False) or cfg_outputs.get("ms1_technical_details_export", False)
+    )
 
     cfg_vis = _cfg_get(cfg, ["visualisation"], {}) or {}
     graphical_representation = bool(getattr(args, "graphical_representation", False) or cfg_vis.get("enabled", False))
@@ -341,6 +389,12 @@ def run_cli(args):
 
         if selected_ms2_options:
             ms2_vis = extract_scan_header_to_csv(raw_parser, sample_out, selected_ms2_options, base, graphical_representation)
+
+        if ms2_technical_details_export:
+            extract_technical_details_to_csv(raw_parser, sample_out, base, 2)
+
+        if ms1_technical_details_export:
+            extract_technical_details_to_csv(raw_parser, sample_out, base, 1)
             
         if hdf5_export:
             out_h5ad = Path(sample_out) / f"{base}_MS2.h5ad"

@@ -206,7 +206,9 @@ class _ExtractionWorker(QObject):
         cmp_files: list[str] | None,
         hdf5_export: bool = False,
         ms2_peaklist_export: bool = False,
-        ms1_peaklist_export: bool = False
+        ms1_peaklist_export: bool = False,
+        ms2_technical_details_export: bool = False,
+        ms1_technical_details_export: bool = False
         
     ):
         super().__init__()
@@ -221,6 +223,8 @@ class _ExtractionWorker(QObject):
         self.hdf5_export = bool(hdf5_export)
         self.ms2_peaklist_export = bool(ms2_peaklist_export)
         self.ms1_peaklist_export = bool(ms1_peaklist_export)
+        self.ms2_technical_details_export = bool(ms2_technical_details_export)
+        self.ms1_technical_details_export = bool(ms1_technical_details_export)
         self.cmp_files = (cmp_files or [])
         self._stop = False
 
@@ -331,6 +335,10 @@ class _ExtractionWorker(QObject):
 
                     if opt == "Scan Description":
                         v = safe_call(lambda: raw_parser.GetScanEventStringForScanNumber(scan_number))
+                        return v if v not in (None, "") else "N/A"
+
+                    if opt == "Scan Mode":
+                        v = safe_call(lambda: raw_parser.GetScanModeFromScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
                     if opt == "Detector Type":
@@ -453,6 +461,10 @@ class _ExtractionWorker(QObject):
                         v = safe_call(lambda: raw_parser.GetIonInjectionTimeFromScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
+                    if opt == "Scan Mode":
+                        v = safe_call(lambda: raw_parser.GetScanModeFromScanNumber(scan_number))
+                        return v if v not in (None, "") else "N/A"
+
                     return "N/A"
 
                 w.writerow([scan_number, base] + [opt_value(o) for o in selected_options])
@@ -498,6 +510,58 @@ class _ExtractionWorker(QObject):
                     self.progress.emit(int((scan_number / max(1, num_scans)) * 100))
 
         self.log.emit(f"[INFO] MS1 scan header CSV: {csv_path}")
+
+    def _extract_technical_details(
+        self,
+        raw_parser,
+        out_dir: Path,
+        base: str,
+        ms_order: int,
+    ):
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ms_label = f"ms{ms_order}"
+        csv_path = out_dir / f"{base}_technical_details_{ms_label}_{ts}.csv"
+
+        rows = []
+        columns = ["Scan Number", "RAW File"]
+        seen_columns = set(columns)
+
+        num_scans = int(getattr(raw_parser, "NumSpectra", 0) or 0)
+        last_ui = 0
+
+        for scan_number in range(1, num_scans + 1):
+            if self._stop:
+                break
+
+            scan_ms_order = safe_call(lambda: int(raw_parser.GetMSOrder(scan_number)), 0)
+            if scan_ms_order != ms_order:
+                continue
+
+            info = safe_call(lambda: raw_parser.GetMoreMSInfos(scan_number), {}) or {}
+            if not isinstance(info, dict):
+                info = {}
+
+            row = {"Scan Number": scan_number, "RAW File": base}
+            for key, value in info.items():
+                if key in ("Scan Number", "RAW File"):
+                    continue
+                if key not in seen_columns:
+                    seen_columns.add(key)
+                    columns.append(key)
+                row[key] = value
+            rows.append(row)
+
+            if scan_number - last_ui >= 300:
+                last_ui = scan_number
+                self.progress.emit(int((scan_number / max(1, num_scans)) * 100))
+
+        with open(csv_path, "w", newline="", encoding="utf-8", errors="replace") as f:
+            w = csv.writer(f)
+            w.writerow(columns)
+            for row in rows:
+                w.writerow([_tsv_safe(row.get(col, "N/A")) for col in columns])
+
+        self.log.emit(f"[INFO] MS{ms_order} technical details CSV: {csv_path}")
 
     @Slot()
     def run(self):
@@ -589,6 +653,9 @@ class _ExtractionWorker(QObject):
 
                 if self.selected_header_options_ms2:
                     self._extract_ms2_scan_header(raw_parser, out_dir, self.selected_header_options_ms2, base, plotly_ms2)
+
+                if self.ms2_technical_details_export:
+                    self._extract_technical_details(raw_parser, out_dir, base, 2)
                     
                 if self.hdf5_export:
                     out_h5ad = out_dir / f"{base}_MS2.h5ad"
@@ -608,6 +675,9 @@ class _ExtractionWorker(QObject):
 
                 if self.selected_header_options_ms1:
                     self._extract_ms1_scan_header(raw_parser, out_dir, self.selected_header_options_ms1, base, plotly_ms1)
+
+                if self.ms1_technical_details_export:
+                    self._extract_technical_details(raw_parser, out_dir, base, 1)
 
                 self._write_plotly(plotly_ms1, plotly_ms2)
                 if plotly_ms1 is not None:
@@ -819,6 +889,8 @@ class MetaXtract_GUI(QMainWindow):
         self.cb_plotly = QCheckBox("Visualisations", self)
         self.cb_ms2_peaklist = QCheckBox("Export MS2 extended peak list (parquet)", self)
         self.cb_ms1_peaklist = QCheckBox("Export MS1 peak list (parquet)", self)
+        self.cb_ms2_technical_details = QCheckBox("Export MS2 technical details", self)
+        self.cb_ms1_technical_details = QCheckBox("Export MS1 technical details", self)
         #self.cb_hdf5 = QCheckBox("AnnData (HDF5 .h5ad) [MS2 only]", self)
         
         self.cb_multi_cmp = QCheckBox("Multi sample comparison (2 files selection)", self)
@@ -830,6 +902,8 @@ class MetaXtract_GUI(QMainWindow):
         opt.addWidget(self.cb_plotly)
         opt.addWidget(self.cb_ms2_peaklist)
         opt.addWidget(self.cb_ms1_peaklist)
+        opt.addWidget(self.cb_ms2_technical_details)
+        opt.addWidget(self.cb_ms1_technical_details)
         #opt.addWidget(self.cb_hdf5)
         main.addWidget(gb_opt)
 
@@ -850,7 +924,7 @@ class MetaXtract_GUI(QMainWindow):
         ms2_cols = [
             "Total Ion Current", "Total Number of Peaks", "Number of Channels", "Frequency",
             "Collision Energy", "Retention Time (s)", "Mass Ranges", "Precursor Intensity",
-            "Scan Description", "AGC", "Micro Scan Count", "Ion Injection Time (ms)",
+            "Scan Description", "Scan Mode", "AGC", "Micro Scan Count", "Ion Injection Time (ms)",
             "Elapsed Scan Time (sec)", "Activation Type", "Mass Analyzer Type", "Detector Type",
             "Base Peak Mass", "Average Scan by Inst", "Orbitrap Resolution", "API Process Delay",
             "Dependency Type", "Multi Inject Info", "Base Peak Intensity", "Master Scan Number",
@@ -884,7 +958,7 @@ class MetaXtract_GUI(QMainWindow):
         ms1_cols = [
             "Ion Injection Time (ms)", "Total Number of Peaks", "Total Ion Current",
             "Retention Time (s)", "Base Peak Intensity", "Base Peak Mass",
-            "Multi Inject Info", "Multiple Injection",
+            "Scan Mode", "Multi Inject Info", "Multiple Injection",
         ]
         for c in ms1_cols:
             cb = QCheckBox(c, self)
@@ -991,6 +1065,8 @@ class MetaXtract_GUI(QMainWindow):
         plotly_enabled = self.cb_plotly.isChecked()
         ms2_peaklist_export = self.cb_ms2_peaklist.isChecked()
         ms1_peaklist_export = self.cb_ms1_peaklist.isChecked()
+        ms2_technical_details_export = self.cb_ms2_technical_details.isChecked()
+        ms1_technical_details_export = self.cb_ms1_technical_details.isChecked()
         #hdf5_export = self.cb_hdf5.isChecked()
         hdf5_export = False
         export_fmt = None
@@ -1045,6 +1121,8 @@ class MetaXtract_GUI(QMainWindow):
             hdf5_export=hdf5_export, 
             ms2_peaklist_export=ms2_peaklist_export,
             ms1_peaklist_export=ms1_peaklist_export,
+            ms2_technical_details_export=ms2_technical_details_export,
+            ms1_technical_details_export=ms1_technical_details_export,
         )
         self._worker.moveToThread(self._thread)
 
