@@ -20,6 +20,7 @@ MetaXtract is a hybrid tool for extracting, analysing, and visualising data from
 - Extracts:
   - File and instrument metadata
   - MS1 and MS2 scan headers
+  - MS1 and MS2 technical trailer details
   - MS1 and MS2 peak lists with the extended peak list of MS2
 - Exports data as:
   - CSV / TSV
@@ -81,6 +82,8 @@ outputs:
   lc_method: true
   ms2_peaklist_export: true
   ms1_peaklist_export: true
+  ms2_technical_details_export: false
+  ms1_technical_details_export: false
   hdf5_export: false
 
 scan_header:
@@ -89,9 +92,11 @@ scan_header:
     columns:
       Total Ion Current: true
       Retention Time (s): true
+      Scan Mode: false
   MS2:
     select_all: true
-    columns: {}
+    columns:
+      Scan Mode: false
 
 visualisation:
   enabled: true
@@ -111,7 +116,7 @@ visualisation:
 #### Scan Header Extraction
 - MS1 scan headers
 - MS2 scan headers
-Each allows: Selecting individual columns or Select all (complete MS1 / MS2).
+Each allows: Selecting individual columns or Select all (complete MS1 / MS2). `Scan Mode` can be selected for both MS1 and MS2.
 
 #### Output
 - CSV tables
@@ -120,6 +125,10 @@ Each allows: Selecting individual columns or Select all (complete MS1 / MS2).
 #### Peak List Export
 - **Export MS2 extended peak list (Parquet):** Per scan; `mz_array`, `intensity_array`, `resolution_array`, `noises_array`, `baselines_array`, `charges_array`.
 - **Export MS1 peak list (Parquet):** Per scan; `mz_array`, `intensity_array` with centroid/profile flag.
+
+#### Technical Details Export
+- **Export MS2 technical details:** Writes `*_technical_details_ms2_*.csv` using `GetMoreMSInfos` for each MS2 scan.
+- **Export MS1 technical details:** Writes `*_technical_details_ms1_*.csv` using `GetMoreMSInfos` for each MS1 scan.
 
 Check the [documentation](Doc/Doc.pdf) for more details. 
 #### Visualisation
