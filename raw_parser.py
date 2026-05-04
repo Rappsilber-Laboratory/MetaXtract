@@ -2481,3 +2481,131 @@ class MetaXtract:
             print(f"[WARN] No MS2 scans were written (method missing / all scans failed). Output may be empty: {output_filename}")
         else:
             print(f"[INFO] Peak list successfully exported to {output_filename}.")
+    
+    def GetScanModeFromScanNumber(self, scanNumber: int) -> str | None:
+        """
+        Get scan mode from scan number (int)
+        
+        Args:
+            self (class object): the main class object of the Raw_Parser.
+            scanNumber (int): target scan
+            
+        Returns:
+            str of scan mode like FTMS + p NSI Full ms [400.0000-1450.0000]
+
+        Raises:
+            ValueError: If the structure of the raw file uncompleted or contains error.
+        """
+        #stat = self.source.GetScanStatsForScanNumber(scanNumber)
+        #return stat.BasePeakMass, stat.BasePeakIntensity
+        try:
+            scanEvent = str(self.source.GetScanEventForScanNumber(scanNumber))
+            return scanEvent
+        except Exception as e:
+            print(f"Error retrieving scan mode infos for scan {scanNumber}: {e}")
+            return None 
+
+    def GetMoreMSInfos(
+        self,
+        scanNumber: int,
+        *,
+        coerce_numbers: bool = True,
+    ) -> dict[str, object]:
+        """
+        Get cleaned trailer extra information for one scan.
+
+        Args:
+            scanNumber: Target scan number.
+            coerce_numbers: Convert numeric strings to int/float when possible.
+
+        Returns:
+            Dictionary for one scan. Keys are table columns, values are cell values.
+
+        Raises:
+            ValueError: If trailer information cannot be retrieved.
+        """
+        import re
+        from itertools import zip_longest
+
+        control_chars_re = re.compile(r"[\x00-\x1f\x7f]")
+
+        def clean_key(key: object) -> str | None:
+            if key is None:
+                return None
+
+            text = str(key)
+            text = control_chars_re.sub("", text)
+            text = " ".join(text.strip().split())
+
+            if text.endswith(":"):
+                text = text[:-1].strip()
+
+            if not text:
+                return None
+
+            # Remove section headers like:
+            # === Mass Calibration: ===
+            # ==== Diagnostic Data: ====
+            if text.startswith("=") and text.endswith("="):
+                return None
+
+            return text
+
+        def clean_value(value: object) -> object:
+            if value is None:
+                return None
+
+            text = str(value).strip()
+
+            if not text:
+                return None
+
+            if not coerce_numbers:
+                return text
+
+            if re.fullmatch(r"[+-]?\d+", text):
+                try:
+                    return int(text)
+                except ValueError:
+                    return text
+
+            if re.fullmatch(r"[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?", text):
+                try:
+                    return float(text)
+                except ValueError:
+                    return text
+
+            return text
+
+        def make_unique_key(key: str, seen: dict[str, int]) -> str:
+            seen[key] = seen.get(key, 0) + 1
+
+            if seen[key] == 1:
+                return key
+
+            return f"{key} #{seen[key]}"
+
+        try:
+            trailerDataExtra = self.source.GetTrailerExtraInformation(scanNumber)
+        except Exception as e:
+            raise ValueError(f"Error retrieving more infos for scan {scanNumber}: {e}") from e
+
+        labels = trailerDataExtra.Labels or []
+        values = trailerDataExtra.Values or []
+
+        scan_info: dict[str, object] = {
+            "Scan Number": scanNumber,
+        }
+
+        seen_keys: dict[str, int] = {}
+
+        for raw_key, raw_value in zip_longest(labels, values, fillvalue=None):
+            key = clean_key(raw_key)
+
+            if key is None:
+                continue
+
+            key = make_unique_key(key, seen_keys)
+            scan_info[key] = clean_value(raw_value)
+
+        return scan_info

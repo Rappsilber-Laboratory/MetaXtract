@@ -11,6 +11,8 @@ outputs:
   lc_method: true
   ms2_peaklist_export: true
   ms1_peaklist_export: true
+  ms2_technical_details_export: false
+  ms1_technical_details_export: false
 
 visualisation:
   enabled: true
@@ -30,6 +32,7 @@ scan_header:
       Retention Time (s): false
       Base Peak Intensity: false
       Base Peak Mass: false
+      Scan Mode: false
       Multi Inject Info: false
       Multiple Injection: false
 
@@ -43,6 +46,7 @@ scan_header:
       Collision Energy: false
       Retention Time (s): false
       Mass Ranges: false
+      Scan Mode: false
       Precursor Intensity: false
       Scan Description: false
       AGC: false
