@@ -157,7 +157,7 @@ class PlotlyMS1Visualizer:
         self.output_dir = Path(output_dir)
         self.ms1_scans: List[int] = []
         self.ms1_data: Dict[str, List] = {
-            "Retention Time (s)": [],
+            "Retention Time (min)": [],
             "Elapsed Scan Time (sec)": [],
             "Total Ion Current": [],
             "Total Number of Peaks": [],
@@ -168,11 +168,11 @@ class PlotlyMS1Visualizer:
 
     def _figs(self) -> List[_Fig]:
         figs: List[_Fig] = []
-        rt_s = _farr(self.ms1_data["Retention Time (s)"])
+        rt_s = _farr(self.ms1_data["Retention Time (min)"])
         if rt_s.size == 0:
             return figs
 
-        rt_min = rt_s / 60.0
+        rt_min = rt_s #/ 60.0
         tic = _farr(self.ms1_data["Total Ion Current"])
         bpi = _farr(self.ms1_data["Base Peak Intensity"])
         bpm = _farr(self.ms1_data["Base Peak Mass"])
@@ -260,25 +260,25 @@ class PlotlyMS1Visualizer:
         return outs
 
     def tic_trace(self) -> Tuple[np.ndarray, np.ndarray]:
-        rt_s = _farr(self.ms1_data["Retention Time (s)"])
+        rt_s = _farr(self.ms1_data["Retention Time (min)"])
         tic = _farr(self.ms1_data["Total Ion Current"])
         if rt_s.size == 0 or tic.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
-        return rt_s / 60.0, tic
+        return rt_s, tic #/ 60.0, tic
     
     def bpi_trace(self):
-        rt_s = _farr(self.ms1_data["Retention Time (s)"])
+        rt_s = _farr(self.ms1_data["Retention Time (min)"])
         bpi = _farr(self.ms1_data["Base Peak Intensity"])
         if rt_s.size == 0 or bpi.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
-        return rt_s / 60.0, bpi
+        return rt_s, bpi #/ 60.0, bpi
 
     def tnp_trace(self):
-        rt_s = _farr(self.ms1_data["Retention Time (s)"])
+        rt_s = _farr(self.ms1_data["Retention Time (min)"])
         tnp = _farr(self.ms1_data["Total Number of Peaks"])
         if rt_s.size == 0 or tnp.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
-        return rt_s / 60.0, tnp
+        return rt_s, tnp # / 60.0, tnp
 
 
 
@@ -288,7 +288,7 @@ class PlotlyMS2Visualizer:
         self.output_dir = Path(output_dir)
         self.ms2_scans: List[int] = []
         self.ms2_data: Dict[str, List] = {
-            "Retention Time (s)": [],
+            "Retention Time (min)": [],
             "Elapsed Scan Time (sec)": [],
             "Total Ion Current": [],
             "Total Number of Peaks": [],
@@ -300,11 +300,11 @@ class PlotlyMS2Visualizer:
 
     def _figs(self) -> List[_Fig]:
         figs: List[_Fig] = []
-        rt_s = _farr(self.ms2_data["Retention Time (s)"])
+        rt_s = _farr(self.ms2_data["Retention Time (min)"])
         if rt_s.size == 0:
             return figs
 
-        rt_min = rt_s / 60.0
+        rt_min = rt_s #/ 60.0
         tic = _farr(self.ms2_data["Total Ion Current"])
         tnp = _farr(self.ms2_data["Total Number of Peaks"])
         prec = _farr(self.ms2_data["Precursor Intensity"])
@@ -405,25 +405,25 @@ class PlotlyMS2Visualizer:
         return outs
 
     def tic_trace(self) -> Tuple[np.ndarray, np.ndarray]:
-        rt_s = _farr(self.ms2_data["Retention Time (s)"])
+        rt_s = _farr(self.ms2_data["Retention Time (min)"])
         tic = _farr(self.ms2_data["Total Ion Current"])
         if rt_s.size == 0 or tic.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
-        return rt_s / 60.0, tic
+        return rt_s, tic # / 60.0, tic
     
     def tnp_trace(self):
-        rt_s = _farr(self.ms2_data["Retention Time (s)"])
+        rt_s = _farr(self.ms2_data["Retention Time (min)"])
         tnp = _farr(self.ms2_data["Total Number of Peaks"])
         if rt_s.size == 0 or tnp.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
-        return rt_s / 60.0, tnp
+        return rt_s, tnp # / 60.0, tnp
 
     def prec_trace(self):
-        rt_s = _farr(self.ms2_data["Retention Time (s)"])
+        rt_s = _farr(self.ms2_data["Retention Time (min)"])
         prec = _farr(self.ms2_data["Precursor Intensity"])
         if rt_s.size == 0 or prec.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
-        return rt_s / 60.0, prec
+        return rt_s, prec # / 60.0, prec
 
 
 

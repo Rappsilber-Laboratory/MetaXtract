@@ -50,7 +50,7 @@ class MS1Visualizer:
         self.output_dir = Path(output_dir)
         self.ms1_scans = []
         self.ms1_data = {
-            "Retention Time (s)": [],
+            "Retention Time (min)": [],
             "Elapsed Scan Time (sec)": [],
             "Total Ion Current": [],
             "Total Number of Peaks": [],
@@ -69,7 +69,7 @@ class MS2Visualizer:
         self.output_dir = Path(output_dir)
         self.ms2_scans = []
         self.ms2_data = {
-            "Retention Time (s)": [],
+            "Retention Time (min)": [],
             "Elapsed Scan Time (sec)": [],
             "Total Ion Current": [],
             "Total Number of Peaks": [],
@@ -299,7 +299,7 @@ class _ExtractionWorker(QObject):
                         v = trailer_data.get(opt, None)
                         return v if v not in (None, "") else "N/A"
 
-                    if opt == "Retention Time (s)":
+                    if opt == "Retention Time (min)":
                         v = safe_call(lambda: raw_parser.GetRetentionTimeFromScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
@@ -390,7 +390,7 @@ class _ExtractionWorker(QObject):
                     bp_int = to_float(bp[1]) if isinstance(bp, (list, tuple)) and len(bp) >= 2 else 0.0
                     plotly_vis.ms2_data["Base Peak Intensity"].append(bp_int or 0.0)
                     plotly_vis.ms2_scans.append(scan_number)
-                    plotly_vis.ms2_data["Retention Time (s)"].append(rt if rt is not None else 0.0)
+                    plotly_vis.ms2_data["Retention Time (min)"].append(rt if rt is not None else 0.0)
                     plotly_vis.ms2_data["Elapsed Scan Time (sec)"].append(est or 0.0)
                     plotly_vis.ms2_data["Total Ion Current"].append(tic or 0.0)
                     plotly_vis.ms2_data["Total Number of Peaks"].append(tnp or 0)
@@ -437,7 +437,7 @@ class _ExtractionWorker(QObject):
                         v = trailer_data.get(opt, None)
                         return v if v not in (None, "") else "N/A"
 
-                    if opt == "Retention Time (s)":
+                    if opt == "Retention Time (min)":
                         v = safe_call(lambda: raw_parser.GetRetentionTimeFromScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
@@ -497,7 +497,7 @@ class _ExtractionWorker(QObject):
                     bp_int = to_float(bp[1]) if isinstance(bp, (list, tuple)) and len(bp) >= 2 else 0.0
 
                     plotly_vis.ms1_scans.append(scan_number)
-                    plotly_vis.ms1_data["Retention Time (s)"].append(rt if rt is not None else 0.0)
+                    plotly_vis.ms1_data["Retention Time (min)"].append(rt if rt is not None else 0.0)
                     plotly_vis.ms1_data["Elapsed Scan Time (sec)"].append(est or 0.0)
                     plotly_vis.ms1_data["Total Ion Current"].append(tic or 0.0)
                     plotly_vis.ms1_data["Total Number of Peaks"].append(tnp or 0)
@@ -598,9 +598,9 @@ class _ExtractionWorker(QObject):
                 plotly_ms2 = PlotlyMS2Visualizer(base, str(out_dir)) if self.plotly_enabled else None
 
                 if self.plotly_enabled and not self.selected_header_options_ms2:
-                    self.selected_header_options_ms2 = ["Retention Time (s)"]
+                    self.selected_header_options_ms2 = ["Retention Time (min)"]
                 if self.plotly_enabled and not self.selected_header_options_ms1:
-                    self.selected_header_options_ms1 = ["Retention Time (s)"]
+                    self.selected_header_options_ms1 = ["Retention Time (min)"]
                     
                 info_tsv_path = None
                 if "File-based Details" in self.selected_options:

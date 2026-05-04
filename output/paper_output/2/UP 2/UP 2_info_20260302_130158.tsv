@@ -1,0 +1,40 @@
+Section	Key	Value
+File	RAW File Name	/media/lutfia95/Extreme SSD/SpectraXceed_Data/UP 2.raw
+File	User ID	HF
+File	File Creation Date	02/20/2025 21:56:26
+Instrument	Instrument Name	Q Exactive HF Orbitrap
+Counts	Number of MS2 Scans (centroid)	0
+Counts	Number of MS2 Scans (profile)	15589
+Counts	Number of MS1 Scans	10787
+Counts	Total Number of Scans	26376
+Run	Start Time	0.0028163247
+Run	End Time	66.999313
+Run	Lowest Mass	100.0
+Run	Highest Mass	5165.0
+Run	Mass Resolution	0.5
+Run	Highest Integrated Intensity	1263979000.0
+Run	Highest Base Peak	0.0
+Instrument Details	Instrument Model	Q Exactive HF Orbitrap
+Instrument Details	Instrument Serial Number	Exactive Series slot #1
+Instrument Details	Instrument Name	Q Exactive HF Orbitrap
+Instrument Details	Software Version	2.11-211012/2.11.0.3005
+Instrument Details	Hardware Version	rev. 1
+Sample	sample.name	
+Sample	sample.id	3
+Sample	user.comment	
+Sample	user.text	"["""", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", """", ""{\""id\"":\""00000000-0000-0000-0000-000000000000\"",\""originalRawFileNameWithoutExtension\"":\""B250220_03_HF_AS_QC_80_HeLa_50ngpurple\"",\""displayRowNumber\"":3,\""displayLabel\"":0}""]"
+Sample	sample.volume	0.0
+Sample	sample.weight	0.0
+Sample	sample.type	QC
+Sample	processing.method.file	
+Sample	original.path	D:\MS_Data\2025\2502\B250220
+Sample	row.number	2
+Sample	ISTD.amount	0.0
+Sample	calibration.file	
+Sample	instrument.method.file	C:\Xcalibur\methods\Berlin\Anne\210322_QCmethods\SII_ES_47G_72T_Top10_QCHeLa.meth
+Sample	bulk.dilution.factor	1.0
+Sample	calibration.level	
+Sample	barcode.status	NotRead
+Sample	barcode	
+Sample	injection.volume	2.5
+Sample	vial	RA6
