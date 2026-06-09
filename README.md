@@ -78,8 +78,8 @@ io:
 
 outputs:
   file_based_details: true
-  ms_method: true
-  lc_method: true
+  ms_method: true # this option is not supported on Linux
+  lc_method: true # this option is not supported on Linux
   ms2_peaklist_export: true
   ms1_peaklist_export: true
   ms2_technical_details_export: false
@@ -110,8 +110,8 @@ visualisation:
 
 #### File-based Outputs
 **Writes a TSV file containing:** Instrument details, Scan counts, Run statistics, Sample information. 
-**MS Method:** Extracts the MS method (`*_MS_method.txt`).
-**LC Method:** Extracts the LC method (`*_LC_method.txt`).
+**MS Method:** Extracts the MS method (`*_MS_method.txt`). # this option is not supported on Linux
+**LC Method:** Extracts the LC method (`*_LC_method.txt`). # this option is not supported on Linux
 
 #### Scan Header Extraction
 - MS1 scan headers
