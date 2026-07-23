@@ -37,6 +37,14 @@ from System.Runtime.InteropServices import GCHandle, GCHandleType
 
 _NUM_RE = re.compile(r"[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?")
 
+def _cancel_requested(should_stop=None) -> bool:
+    if should_stop is None:
+        return False
+    try:
+        return bool(should_stop())
+    except Exception:
+        return False
+
 def _to_float(x, default=np.nan):
     if x is None:
         return default
@@ -133,7 +141,7 @@ class MetaXtract:
     def GetMS2PeakListArraysFromScanNumber(self, scanNumber: int):
         return self.GetMS2PeakListArraysFromScanNumberTest(scanNumber)
 
-    def CountMS2(self) -> None:
+    def CountMS2(self, should_stop=None) -> None:
         """
         Count number of MS2 spectra in the raw file.
 
@@ -159,6 +167,8 @@ class MetaXtract:
             self.NumMS1 = 0
 
             for scanNumber in range(1, self.NumSpectra + 1):
+                if _cancel_requested(should_stop):
+                    break
                 try:
                     scanStatistics = self.source.GetScanStatsForScanNumber(scanNumber)
                     scanEvent = self.source.GetScanEventForScanNumber(scanNumber)
@@ -2340,7 +2350,7 @@ class MetaXtract:
             return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
         
     
-    def ExportMS1PeakList(self, output_filename: str = None) -> None:
+    def ExportMS1PeakList(self, output_filename: str = None, should_stop=None) -> None:
        if output_filename is None:
           base, _ext = os.path.splitext(self.filename)
           output_filename = f"{base}_ms1_peaklist.parquet"
@@ -2349,7 +2359,7 @@ class MetaXtract:
        if output_directory:
            os.makedirs(output_directory, exist_ok=True)
 
-       self.CountMS2()
+       self.CountMS2(should_stop=should_stop)
        num_scans = len(getattr(self, "MS1ScanNumbers", []) or [])
        chunk_size = 100
 
@@ -2360,6 +2370,9 @@ class MetaXtract:
 
        try:
            for scan_number in tqdm(self.MS1ScanNumbers, desc="Exporting MS1 Peak List"):
+               if _cancel_requested(should_stop):
+                   print("[INFO] MS1 peak list export cancelled.")
+                   break
                try:
                    if self.IsProfileScanForScanNumber(scan_number):
                        mz_int = self.GetProfileMassListFromScanNumber(scan_number)
@@ -2410,7 +2423,7 @@ class MetaXtract:
 
        print(f"[INFO] MS1 peak list successfully exported to {output_filename}.")
 
-    def ExportPeakList(self, output_filename: str = None) -> None:
+    def ExportPeakList(self, output_filename: str = None, should_stop=None) -> None:
         """
         Exports processed peak list data to a Parquet file in memory-efficient chunks.
 
@@ -2429,7 +2442,7 @@ class MetaXtract:
         if output_directory:
             os.makedirs(output_directory, exist_ok=True)
                 
-        self.CountMS2()
+        self.CountMS2(should_stop=should_stop)
         #num_scans = len(self.MS2ScanNumbers)
         num_scans = len(getattr(self, "MS2ScanNumbers", []) or [])
         chunk_size = 100
@@ -2441,6 +2454,9 @@ class MetaXtract:
 
         try:
             for i, scan_number in enumerate(tqdm(self.MS2ScanNumbers, desc="Exporting Peak List")):
+                if _cancel_requested(should_stop):
+                    print("[INFO] MS2 peak list export cancelled.")
+                    break
                 try:
                     mz_array, intensity_array, resolution_array, noises_array, baselines_array, charges_array = \
                         self.GetMS2PeakListArraysFromScanNumber(scan_number)
