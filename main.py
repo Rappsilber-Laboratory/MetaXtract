@@ -81,13 +81,14 @@ def main() -> None:
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QIcon
 
-    from gui import MetaXtract_GUI
+    from gui import MetaXtract_GUI, install_shutdown_handlers
 
     app = QApplication(sys.argv)
 
     icon_path = Path(__file__).parent / "assets" / "icon.ico"
     app.setWindowIcon(QIcon(str(icon_path)))
     window = MetaXtract_GUI()
+    install_shutdown_handlers(app, window)
     window.resize(650, 800)
     window.show()
     sys.exit(app.exec())

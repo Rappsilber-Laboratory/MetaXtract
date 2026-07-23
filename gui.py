@@ -4,11 +4,13 @@ import csv
 import json
 import os
 import re
+import signal
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 import traceback
-from PySide6.QtCore import QObject, Signal, Slot, QThread, Qt
+from PySide6.QtCore import QObject, Signal, Slot, QThread, Qt, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -93,8 +95,8 @@ def _tsv_safe(v):
     s = str(v)
     return s.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
-def write_info_tsv(raw_parser, out_tsv_path: str):
-    raw_parser.CountMS2()
+def write_info_tsv(raw_parser, out_tsv_path: str, should_stop=None):
+    raw_parser.CountMS2(should_stop=should_stop)
 
     instrument_details = raw_parser.GetInstrumentDetails() or {}
     sample_information = raw_parser.GetSampleInformation() or {}
@@ -226,12 +228,21 @@ class _ExtractionWorker(QObject):
         self.ms2_technical_details_export = bool(ms2_technical_details_export)
         self.ms1_technical_details_export = bool(ms1_technical_details_export)
         self.cmp_files = (cmp_files or [])
-        self._stop = False
+        self._stop_event = threading.Event()
+        self._current_raw_parser = None
 
     @Slot()
     def stop(self):
+        self._stop_event.set()
 
-        self._stop = True
+    def should_stop(self) -> bool:
+        return self._stop_event.is_set() or QThread.currentThread().isInterruptionRequested()
+
+    def _close_current_raw_file(self) -> None:
+        raw_parser = self._current_raw_parser
+        self._current_raw_parser = None
+        if raw_parser is not None:
+            safe_call(lambda: raw_parser.CloseRAWFile(), None)
 
     def _remove_empty_lines(self, input_file: str) -> None:
         try:
@@ -283,7 +294,7 @@ class _ExtractionWorker(QObject):
             last_ui = 0
 
             for scan_number in range(1, num_scans + 1):
-                if self._stop:
+                if self.should_stop():
                     break
 
                 ms_order = safe_call(lambda: int(raw_parser.GetMSOrder(scan_number)), 0)
@@ -423,7 +434,7 @@ class _ExtractionWorker(QObject):
             last_ui = 0
 
             for scan_number in range(1, num_scans + 1):
-                if self._stop:
+                if self.should_stop():
                     break
 
                 ms_order = safe_call(lambda: int(raw_parser.GetMSOrder(scan_number)), 0)
@@ -530,7 +541,7 @@ class _ExtractionWorker(QObject):
         last_ui = 0
 
         for scan_number in range(1, num_scans + 1):
-            if self._stop:
+            if self.should_stop():
                 break
 
             scan_ms_order = safe_call(lambda: int(raw_parser.GetMSOrder(scan_number)), 0)
@@ -584,12 +595,13 @@ class _ExtractionWorker(QObject):
             for selected_file in self.selected_files:
                 if cmp_set is not None and selected_file not in cmp_set:
                     continue
-                if self._stop:
+                if self.should_stop():
                     break
 
                 self.log.emit(f"[INFO] Processing: {selected_file}")
 
                 raw_parser = MetaXtract(selected_file)
+                self._current_raw_parser = raw_parser
                 base = os.path.splitext(os.path.basename(selected_file))[0]
                 out_dir = Path(self.output_dir_raw) / base
                 out_dir.mkdir(parents=True, exist_ok=True)
@@ -605,7 +617,7 @@ class _ExtractionWorker(QObject):
                 info_tsv_path = None
                 if "File-based Details" in self.selected_options:
                     info_tsv = out_dir / f"{base}_info_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
-                    write_info_tsv(raw_parser, info_tsv)
+                    write_info_tsv(raw_parser, info_tsv, should_stop=self.should_stop)
                     info_tsv_path = str(info_tsv)
                     self.log.emit(f"[INFO] Wrote: {info_tsv}")
                     # info_file = out_dir / f"{base}_info_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -637,12 +649,18 @@ class _ExtractionWorker(QObject):
                     #         f.write(f"{k}: {v}\n")
                     # self.log.emit(f"[INFO] Wrote: {info_file}")
 
+                if self.should_stop():
+                    break
+
                 if "MS-Method" in self.selected_options:
                     ms_method_file = out_dir / f"{base}_MS_method_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                     with open(ms_method_file, "w", encoding="utf-8", errors="replace") as f:
                         f.write(f"{safe_call(lambda: raw_parser.GetMSMethod(), '')}\n")
                     self._remove_empty_lines(str(ms_method_file))
                     self.log.emit(f"[INFO] Wrote: {ms_method_file}")
+
+                if self.should_stop():
+                    break
 
                 if "LC-Method" in self.selected_options:
                     lc_method_file = out_dir / f"{base}_LC_method_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -651,35 +669,62 @@ class _ExtractionWorker(QObject):
                     self._remove_empty_lines(str(lc_method_file))
                     self.log.emit(f"[INFO] Wrote: {lc_method_file}")
 
+                if self.should_stop():
+                    break
+
                 if self.selected_header_options_ms2:
                     self._extract_ms2_scan_header(raw_parser, out_dir, self.selected_header_options_ms2, base, plotly_ms2)
+
+                if self.should_stop():
+                    break
 
                 if self.ms2_technical_details_export:
                     self._extract_technical_details(raw_parser, out_dir, base, 2)
                     
+                if self.should_stop():
+                    break
+
                 if self.hdf5_export:
                     out_h5ad = out_dir / f"{base}_MS2.h5ad"
-                    export_ms2_to_h5ad(raw_parser, out_h5ad, info_tsv_path=info_tsv_path)
+                    export_ms2_to_h5ad(raw_parser, out_h5ad, info_tsv_path=info_tsv_path, should_stop=self.should_stop)
                     self.log.emit(f"[INFO] Wrote: {out_h5ad}")
                     
+                if self.should_stop():
+                    break
+
                 if self.ms2_peaklist_export:
                     out_pq = out_dir / f"{base}_ms2_peaklist.parquet"
-                    raw_parser.ExportPeakList(str(out_pq))
+                    raw_parser.ExportPeakList(str(out_pq), should_stop=self.should_stop)
                     self.log.emit(f"[INFO] Wrote: {out_pq}")
                     
+                if self.should_stop():
+                    break
+
                 if self.ms1_peaklist_export:
                     out_pq = out_dir / f"{base}_ms1_peaklist.parquet"
-                    raw_parser.ExportMS1PeakList(str(out_pq))
+                    raw_parser.ExportMS1PeakList(str(out_pq), should_stop=self.should_stop)
                     self.log.emit(f"[INFO] Wrote: {out_pq}")
                     
+
+                if self.should_stop():
+                    break
 
                 if self.selected_header_options_ms1:
                     self._extract_ms1_scan_header(raw_parser, out_dir, self.selected_header_options_ms1, base, plotly_ms1)
 
+                if self.should_stop():
+                    break
+
                 if self.ms1_technical_details_export:
                     self._extract_technical_details(raw_parser, out_dir, base, 1)
 
+                if self.should_stop():
+                    break
+
                 self._write_plotly(plotly_ms1, plotly_ms2)
+                if self.should_stop():
+                    break
+
                 if plotly_ms1 is not None:
                     ms1_box_tic[base] = list(plotly_ms1.ms1_data.get("Total Ion Current", []))
                     ms1_box_bpi[base] = list(plotly_ms1.ms1_data.get("Base Peak Intensity", []))
@@ -709,10 +754,15 @@ class _ExtractionWorker(QObject):
 
 
                 safe_call(lambda: raw_parser.CloseRAWFile(), None)
+                self._current_raw_parser = None
                 self.progress.emit(100)
                 self.log.emit(f"[INFO] Finished: {selected_file}\n")
 
-            if self.plotly_enabled and len(all_ms1_tic) >= 2:
+            if self.should_stop():
+                self._close_current_raw_file()
+                self.log.emit("[INFO] Processing stopped.")
+
+            if not self.should_stop() and self.plotly_enabled and len(all_ms1_tic) >= 2:
                 out = global_out / "MS1_compare.html"
                 write_comparison_html_with_boxplots(
                     out,
@@ -731,7 +781,7 @@ class _ExtractionWorker(QObject):
                 self.log.emit(f"[VIS] MS1 comparison: {out}")
 
 
-            if self.plotly_enabled and len(all_ms2_tic) >= 2:
+            if not self.should_stop() and self.plotly_enabled and len(all_ms2_tic) >= 2:
                 out = global_out / "MS2_compare.html"
                 write_comparison_html_with_boxplots(
                     out,
@@ -748,10 +798,13 @@ class _ExtractionWorker(QObject):
                     ],
                 )
                 self.log.emit(f"[VIS] MS2 comparison: {out}")
-
-
+            self.finished.emit()
+        except InterruptedError:
+            self._close_current_raw_file()
+            self.log.emit("[INFO] Processing stopped.")
             self.finished.emit()
         except Exception as e:
+            self._close_current_raw_file()
             #self.failed.emit(str(e))
             tb = traceback.format_exc()
             try:
@@ -1020,27 +1073,50 @@ class MetaXtract_GUI(QMainWindow):
         self.show_error(msg)
         self._shutdown_thread(wait=True)
 
-    def _shutdown_thread(self, wait: bool):
+    def _shutdown_thread(self, wait: bool, force: bool = False, timeout_ms: int = 5000) -> bool:
         t = self._thread
         w = self._worker
-        self._thread = None
-        self._worker = None
 
         if w is not None:
             try:
                 w.stop()
             except Exception:
                 pass
-            w.deleteLater()
 
         if t is not None:
+            try:
+                t.requestInterruption()
+            except Exception:
+                pass
             try:
                 t.quit()
             except Exception:
                 pass
+
             if wait and QThread.currentThread() != t:
-                t.wait()
+                if force:
+                    t.wait(timeout_ms)
+                else:
+                    t.wait()
+
+            if force and t.isRunning():
+                try:
+                    t.terminate()
+                    t.wait(1000)
+                except Exception:
+                    pass
+
+            if force and t.isRunning():
+                os._exit(0)
+
+            if t.isRunning():
+                return False
+
             t.deleteLater()
+
+        self._thread = None
+        self._worker = None
+        return True
 
     def stop_processing(self):
         if self._worker is not None:
@@ -1049,6 +1125,12 @@ class MetaXtract_GUI(QMainWindow):
             except Exception:
                 pass
         self.btn_stop.setEnabled(False)
+
+    def request_shutdown(self, wait: bool = True, force: bool = False) -> bool:
+        if self._thread is not None and self._thread.isRunning():
+            self.stop_processing()
+            return self._shutdown_thread(wait=wait, force=force)
+        return True
 
     def extract_information(self):
         selected_files = getattr(self, "selected_files", None)
@@ -1131,20 +1213,49 @@ class MetaXtract_GUI(QMainWindow):
         self._worker.log.connect(self.log_window.append_log, Qt.QueuedConnection)
         self._worker.finished.connect(self._on_done, Qt.QueuedConnection)
         self._worker.failed.connect(self._on_fail, Qt.QueuedConnection)
+        self._thread.finished.connect(self._worker.deleteLater)
 
         self._thread.start()
 
     def closeEvent(self, event):
-        if self._thread is not None and self._thread.isRunning():
-            self.stop_processing()
-            self._shutdown_thread(wait=True)
+        self.request_shutdown(wait=True, force=True)
         event.accept()
+
+
+def install_shutdown_handlers(app: QApplication, window: MetaXtract_GUI) -> None:
+    timer = QTimer(app)
+    timer.start(200)
+    timer.timeout.connect(lambda: None)
+    app._metaxtract_signal_timer = timer
+
+    shutting_down = False
+
+    def handle_signal(signum, _frame):
+        nonlocal shutting_down
+        if shutting_down:
+            os._exit(128 + int(signum))
+        shutting_down = True
+        window.request_shutdown(wait=True, force=True)
+        app.quit()
+
+    handled_signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):
+        handled_signals.append(signal.SIGBREAK)
+
+    for sig in handled_signals:
+        try:
+            signal.signal(sig, handle_signal)
+        except (OSError, ValueError):
+            pass
+
+    app.aboutToQuit.connect(lambda: window.request_shutdown(wait=True, force=True))
 
 
 def main():
     app = QApplication(sys.argv)
     app.setFont(QFont("Segoe UI", 10))
     w = MetaXtract_GUI()
+    install_shutdown_handlers(app, w)
     w.show()
     sys.exit(app.exec())
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
+import threading
 import yaml
 from datetime import datetime
 import csv, json
@@ -15,6 +17,15 @@ from plotly_visualizer import (
     write_comparison_html_multi,
     write_comparison_html_with_boxplots,
 )
+
+
+def _cancel_requested(should_stop=None) -> bool:
+    if should_stop is None:
+        return False
+    try:
+        return bool(should_stop())
+    except Exception:
+        return False
 
 def remove_empty_lines(input_file):
     with open(input_file, "r", encoding="utf-8", errors="replace") as f:
@@ -71,7 +82,14 @@ def _pick_cmp_inputs(all_inputs: list[str], samples_1based: list[int]) -> list[s
     return out
 
 
-def extract_scan_header_to_csv(raw_parser, output_dir, selected_options, single_file_name, graphical_representation=False):
+def extract_scan_header_to_csv(
+    raw_parser,
+    output_dir,
+    selected_options,
+    single_file_name,
+    graphical_representation=False,
+    should_stop=None,
+):
     # MS2
     try:
         csv_file_path = f"{output_dir}/{single_file_name}_scan_header_ms2_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -100,6 +118,9 @@ def extract_scan_header_to_csv(raw_parser, output_dir, selected_options, single_
 
             num_scans = raw_parser.NumSpectra
             for scan_number in range(1, num_scans + 1):
+                if _cancel_requested(should_stop):
+                    print("[INFO] MS2 scan header extraction cancelled.")
+                    break
                 scan_ms_order = int(raw_parser.GetMSOrder(scan_number))
                 if scan_ms_order != 2:
                     continue
@@ -139,7 +160,14 @@ def extract_scan_header_to_csv(raw_parser, output_dir, selected_options, single_
         return None
 
 
-def extract_scan_header_to_csv_ms1(raw_parser, output_dir, selected_options, single_file_name, graphical_representation=False):
+def extract_scan_header_to_csv_ms1(
+    raw_parser,
+    output_dir,
+    selected_options,
+    single_file_name,
+    graphical_representation=False,
+    should_stop=None,
+):
     # MS1
     try:
         csv_file_path = f"{output_dir}/{single_file_name}_scan_header_ms1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -161,6 +189,9 @@ def extract_scan_header_to_csv_ms1(raw_parser, output_dir, selected_options, sin
 
             num_scans = raw_parser.NumSpectra
             for scan_number in range(1, num_scans + 1):
+                if _cancel_requested(should_stop):
+                    print("[INFO] MS1 scan header extraction cancelled.")
+                    break
                 scan_ms_order = int(raw_parser.GetMSOrder(scan_number))
                 if raw_parser.CheckMS2Centroid(scan_number) or scan_ms_order == 2:
                     continue
@@ -196,7 +227,7 @@ def extract_scan_header_to_csv_ms1(raw_parser, output_dir, selected_options, sin
         print(f"[ERROR] Failed to generate MS1 CSV: {e}")
         return None
 
-def extract_technical_details_to_csv(raw_parser, output_dir, single_file_name, ms_order: int):
+def extract_technical_details_to_csv(raw_parser, output_dir, single_file_name, ms_order: int, should_stop=None):
     try:
         csv_file_path = (
             f"{output_dir}/{single_file_name}_technical_details_ms{ms_order}_"
@@ -208,6 +239,9 @@ def extract_technical_details_to_csv(raw_parser, output_dir, single_file_name, m
 
         num_scans = raw_parser.NumSpectra
         for scan_number in range(1, num_scans + 1):
+            if _cancel_requested(should_stop):
+                print(f"[INFO] MS{ms_order} technical details extraction cancelled.")
+                break
             scan_ms_order = int(raw_parser.GetMSOrder(scan_number))
             if scan_ms_order != ms_order:
                 continue
@@ -244,8 +278,8 @@ def _tsv_safe(v):
     s = str(v)
     return s.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
-def write_info_tsv(raw_parser, out_tsv_path: str):
-    raw_parser.CountMS2()
+def write_info_tsv(raw_parser, out_tsv_path: str, should_stop=None):
+    raw_parser.CountMS2(should_stop=should_stop)
 
     instrument_details = raw_parser.GetInstrumentDetails() or {}
     sample_information = raw_parser.GetSampleInformation() or {}
@@ -283,6 +317,24 @@ def write_info_tsv(raw_parser, out_tsv_path: str):
             w.writerow([_tsv_safe(sec), _tsv_safe(key), _tsv_safe(val)])
 
 def run_cli(args):
+    stop_event = threading.Event()
+
+    def request_stop(signum, _frame):
+        if stop_event.is_set():
+            raise KeyboardInterrupt
+        stop_event.set()
+        print(f"\n[INFO] Received signal {signum}; stopping after the current operation...")
+
+    handled_signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):
+        handled_signals.append(signal.SIGBREAK)
+
+    for sig in handled_signals:
+        try:
+            signal.signal(sig, request_stop)
+        except (OSError, ValueError):
+            pass
+
     cfg = load_yml_config(args.config) if getattr(args, "config", None) else {}
 
     cfg_inputs = _cfg_get(cfg, ["io", "input"], []) or []
@@ -351,6 +403,8 @@ def run_cli(args):
 
 
     for input_file in proc_inputs:
+        if stop_event.is_set():
+            break
         if not os.path.exists(input_file):
             print(f"[ERROR] Input file '{input_file}' does not exist.")
             continue
@@ -365,9 +419,13 @@ def run_cli(args):
         info_tsv_path = None
         if file_based_details:
             file_details_path = os.path.join(sample_out, f"{base}_info.tsv")
-            write_info_tsv(raw_parser, file_details_path)
+            write_info_tsv(raw_parser, file_details_path, should_stop=stop_event.is_set)
             info_tsv_path = file_details_path
             print(f"[INFO] Wrote: {file_details_path}")
+
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
 
         if ms_method:
             ms_method_path = os.path.join(sample_out, f"{base}_MS_method.txt")
@@ -375,39 +433,89 @@ def run_cli(args):
                 f.write(raw_parser.GetMSMethod() or "")
             remove_empty_lines(ms_method_path)
 
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
+
         if lc_method:
             lc_method_path = os.path.join(sample_out, f"{base}_LC_method.txt")
             with open(lc_method_path, "w", encoding="utf-8", errors="replace") as f:
                 f.write(raw_parser.GetLCMethod() or "")
             remove_empty_lines(lc_method_path)
 
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
+
         ms1_vis = None
         ms2_vis = None
 
         if selected_ms1_options:
-            ms1_vis = extract_scan_header_to_csv_ms1(raw_parser, sample_out, selected_ms1_options, base, graphical_representation)
+            ms1_vis = extract_scan_header_to_csv_ms1(
+                raw_parser,
+                sample_out,
+                selected_ms1_options,
+                base,
+                graphical_representation,
+                should_stop=stop_event.is_set,
+            )
+
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
 
         if selected_ms2_options:
-            ms2_vis = extract_scan_header_to_csv(raw_parser, sample_out, selected_ms2_options, base, graphical_representation)
+            ms2_vis = extract_scan_header_to_csv(
+                raw_parser,
+                sample_out,
+                selected_ms2_options,
+                base,
+                graphical_representation,
+                should_stop=stop_event.is_set,
+            )
+
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
 
         if ms2_technical_details_export:
-            extract_technical_details_to_csv(raw_parser, sample_out, base, 2)
+            extract_technical_details_to_csv(raw_parser, sample_out, base, 2, should_stop=stop_event.is_set)
+
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
 
         if ms1_technical_details_export:
-            extract_technical_details_to_csv(raw_parser, sample_out, base, 1)
+            extract_technical_details_to_csv(raw_parser, sample_out, base, 1, should_stop=stop_event.is_set)
             
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
+
         if hdf5_export:
             out_h5ad = Path(sample_out) / f"{base}_MS2.h5ad"
-            export_ms2_to_h5ad(raw_parser, out_h5ad, info_tsv_path=info_tsv_path)
-            print(f"[INFO] Wrote: {out_h5ad}")
+            try:
+                export_ms2_to_h5ad(raw_parser, out_h5ad, info_tsv_path=info_tsv_path, should_stop=stop_event.is_set)
+                print(f"[INFO] Wrote: {out_h5ad}")
+            except InterruptedError:
+                stop_event.set()
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
         if ms2_peaklist_export:
             out_pq = Path(sample_out) / f"{base}_ms2_peaklist.parquet"
-            raw_parser.ExportPeakList(str(out_pq))
+            raw_parser.ExportPeakList(str(out_pq), should_stop=stop_event.is_set)
             print(f"[INFO] Wrote: {out_pq}")
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
         if ms1_peaklist_export:
             out_pq = Path(sample_out) / f"{base}_ms1_peaklist.parquet"
-            raw_parser.ExportMS1PeakList(str(out_pq))
+            raw_parser.ExportMS1PeakList(str(out_pq), should_stop=stop_event.is_set)
             print(f"[INFO] Wrote: {out_pq}")
+        if stop_event.is_set():
+            raw_parser.CloseRAWFile()
+            break
         if graphical_representation and ms1_vis is not None:
             ms1_box_tic[base] = list(ms1_vis.ms1_data.get("Total Ion Current", []))
             ms1_box_bpi[base] = list(ms1_vis.ms1_data.get("Base Peak Intensity", []))
@@ -442,7 +550,10 @@ def run_cli(args):
         raw_parser.CloseRAWFile()
         print(f"[INFO] Done: {input_file}\n")
 
-    if graphical_representation and len(all_ms1_tic) >= 2:
+    if stop_event.is_set():
+        print("[INFO] Processing stopped.")
+
+    if not stop_event.is_set() and graphical_representation and len(all_ms1_tic) >= 2:
         out = Path(outdir) / "MS1_compare.html"
         write_comparison_html_with_boxplots(
             out,
@@ -461,7 +572,7 @@ def run_cli(args):
         print(f"[VIS] MS1 comparison: {out}")
 
 
-    if graphical_representation and len(all_ms2_tic) >= 2:
+    if not stop_event.is_set() and graphical_representation and len(all_ms2_tic) >= 2:
         out = Path(outdir) / "MS2_compare.html"
         write_comparison_html_with_boxplots(
             out,

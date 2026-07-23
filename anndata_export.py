@@ -62,7 +62,22 @@ def _write_vlen_float(group: h5py.Group, name: str, arrays: list[np.ndarray]) ->
     group.create_dataset(name, data=data, dtype=dt)
 
 
-def export_ms2_to_h5ad(raw_parser, out_h5ad_path: str | Path, *, info_tsv_path: str | Path | None = None) -> Path:
+def _cancel_requested(should_stop=None) -> bool:
+    if should_stop is None:
+        return False
+    try:
+        return bool(should_stop())
+    except Exception:
+        return False
+
+
+def export_ms2_to_h5ad(
+    raw_parser,
+    out_h5ad_path: str | Path,
+    *,
+    info_tsv_path: str | Path | None = None,
+    should_stop=None,
+) -> Path:
     """
     MS2-only AnnData export (H5AD):
       - obs: scan-level metadata
@@ -84,6 +99,8 @@ def export_ms2_to_h5ad(raw_parser, out_h5ad_path: str | Path, *, info_tsv_path: 
     it_list: list[np.ndarray] = []
 
     for scan_number in range(1, num_scans + 1):
+        if _cancel_requested(should_stop):
+            raise InterruptedError("H5AD export cancelled.")
         ms_order = int(raw_parser.GetMSOrder(scan_number))
         if ms_order != 2:
             continue
