@@ -27,6 +27,70 @@ def _cancel_requested(should_stop=None) -> bool:
     except Exception:
         return False
 
+
+COLUMN_SOURCE_ALIASES = {
+    "Scan Start Time (min)": ("Retention Time (min)", "Retention Time (s)"),
+    "Base Peak m/z": ("Base Peak Mass",),
+    "Selected Ion Intensity": ("Precursor Intensity",),
+    "Scan Window m/z Range": ("Mass Ranges",),
+    "Filter String": ("Scan Description",),
+    "Dissociation Method": ("Activation Type",),
+    "Sampling Frequency": ("Frequency",),
+    "Experimental Precursor Monoisotopic m/z": ("Monoisotopic M/Z",),
+    "Isolation Window Width (m/z)": ("MS2 Isolation Width",),
+    "Normalized Collision Energy (%)": ("HCD Energy",),
+    "Collision Energy (eV)": ("HCD Energy eV",),
+    "FAIMS Compensation Voltage": ("FAIMS CV",),
+    "thermo_Number of Channels": ("Number of Channels",),
+    "thermo_AGC": ("AGC",),
+    "thermo_Micro Scan Count": ("Micro Scan Count",),
+    "thermo_Elapsed Scan Time (sec)": ("Elapsed Scan Time (sec)",),
+    "thermo_Average Scan by Inst": ("Average Scan by Inst",),
+    "thermo_Orbitrap Resolution": ("Orbitrap Resolution",),
+    "thermo_API Process Delay": ("API Process Delay",),
+    "thermo_Dependency Type": ("Dependency Type",),
+    "thermo_Multi Inject Info": ("Multi Inject Info",),
+    "thermo_Master Scan Number": ("Master Scan Number",),
+    "thermo_Access ID": ("Access ID",),
+    "thermo_Conversion Parameter I": ("Conversion Parameter I",),
+    "thermo_Conversion Parameter A": ("Conversion Parameter A",),
+    "thermo_Conversion Parameter B": ("Conversion Parameter B",),
+    "thermo_Conversion Parameter C": ("Conversion Parameter C",),
+    "thermo_Conversion Parameter D": ("Conversion Parameter D",),
+    "thermo_Conversion Parameter E": ("Conversion Parameter E",),
+    "thermo_Temperature Comp. (ppm)": ("Temperature Comp. (ppm)",),
+    "thermo_RF Comp. (ppm)": ("RF Comp. (ppm)",),
+    "thermo_Space Charge Comp. (ppm)": ("Space Charge Comp. (ppm)",),
+    "thermo_Resolution Comp. (ppm)": ("Resolution Comp. (ppm)",),
+    "thermo_Number of LM Found": ("Number of LM Found",),
+    "thermo_LM Correction (ppm)": ("LM Correction (ppm)",),
+    "thermo_RawOvFtT": ("RawOvFtT",),
+    "thermo_Injection t0": ("Injection t0",),
+    "thermo_Reagent Ion Injection Time (ms)": ("Reagent Ion Injection Time (ms)",),
+    "thermo_FAIMS Voltage On": ("FAIMS Voltage On",),
+    "thermo_Multiple Injection": ("Multiple Injection",),
+}
+
+
+def trailer_value(trailer_data, output_label: str):
+    if not trailer_data:
+        return None
+    for key in (output_label, *COLUMN_SOURCE_ALIASES.get(output_label, ())):
+        value = trailer_data.get(key, None)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def format_scan_window_mz_range(raw_parser, scan_number: int):
+    n = raw_parser.GetNumberOfMassRangesFromScanNumber(scan_number) or 0
+    ranges = []
+    for i in range(n):
+        lo, hi = raw_parser.GetMassRangeFromScanNumber(scan_number, i)
+        if lo is not None and hi is not None:
+            ranges.append(f"{lo}-{hi}")
+    return "; ".join(ranges) if ranges else "N/A"
+
 def remove_empty_lines(input_file):
     with open(input_file, "r", encoding="utf-8", errors="replace") as f:
         lines = f.readlines()
@@ -98,15 +162,25 @@ def extract_scan_header_to_csv(
         option_functions = {
             "Total Ion Current": lambda sn: raw_parser.GetTICForScanNumber(sn),
             "Total Number of Peaks": lambda sn: raw_parser.GetNumPeaksForScanNumber(sn),
+            "thermo_Number of Channels": lambda sn: raw_parser.GetNumChannelsForScanNumber(sn),
             "Number of Channels": lambda sn: raw_parser.GetNumChannelsForScanNumber(sn),
+            "Sampling Frequency": lambda sn: raw_parser.GetFrequencyForScanNumber(sn),
             "Frequency": lambda sn: raw_parser.GetFrequencyForScanNumber(sn),
             "Collision Energy": lambda sn: raw_parser.GetCollisionEnergyForScanNumber(sn),
+            "Scan Start Time (min)": lambda sn: raw_parser.GetRetentionTimeFromScanNumber(sn),
+            "Retention Time (min)": lambda sn: raw_parser.GetRetentionTimeFromScanNumber(sn),
             "Retention Time (s)": lambda sn: raw_parser.GetRetentionTimeFromScanNumber(sn),
-            "Mass Ranges": lambda sn: raw_parser.GetMassRangeFromScanNumber(sn, 1),
+            "Scan Window m/z Range": lambda sn: format_scan_window_mz_range(raw_parser, sn),
+            "Mass Ranges": lambda sn: format_scan_window_mz_range(raw_parser, sn),
             "Scan Mode": lambda sn: raw_parser.GetScanModeFromScanNumber(sn),
+            "Filter String": lambda sn: raw_parser.GetScanEventStringForScanNumber(sn),
+            "Scan Description": lambda sn: raw_parser.GetScanEventStringForScanNumber(sn),
+            "Selected Ion Intensity": lambda sn: raw_parser.GetPrecursorIntensityFromScanNumber(sn),
             "Precursor Intensity": lambda sn: raw_parser.GetPrecursorIntensityFromScanNumber(sn),
+            "Base Peak m/z": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[0],
             "Base Peak Mass": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[0],
             "Base Peak Intensity": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[1],
+            "Dissociation Method": lambda sn: raw_parser.GetActivationTypeForScanNumber(sn),
             "Activation Type": lambda sn: raw_parser.GetActivationTypeForScanNumber(sn),
             "Mass Analyzer Type": lambda sn: raw_parser.GetMassAnalyzerTypeFromScanNumber(sn),
             "Detector Type": lambda sn: raw_parser.GetDetectorTypeFromScanNumber(sn),
@@ -131,9 +205,8 @@ def extract_scan_header_to_csv(
                 trailer_data = raw_parser.GetTrailerExtraInformaionEdited(scan_number) or {}
 
                 for option in selected_options:
-                    if option in trailer_data:
-                        value = trailer_data.get(option, "N/A")
-                    else:
+                    value = trailer_value(trailer_data, option)
+                    if value is None:
                         value = option_functions.get(option, lambda sn: "N/A")(scan_number)
                     row.append(value)
 
@@ -141,11 +214,11 @@ def extract_scan_header_to_csv(
 
                 if graphical_representation and plotly_vis is not None:
                     plotly_vis.ms2_scans.append(scan_number)
-                    plotly_vis.ms2_data["Retention Time (s)"].append(raw_parser.GetRetentionTimeFromScanNumber(scan_number))
+                    plotly_vis.ms2_data["Scan Start Time (min)"].append(raw_parser.GetRetentionTimeFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Elapsed Scan Time (sec)"].append(raw_parser.GetElaspedScanTimeFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Total Ion Current"].append(raw_parser.GetTICForScanNumber(scan_number))
                     plotly_vis.ms2_data["Total Number of Peaks"].append(raw_parser.GetNumPeaksForScanNumber(scan_number))
-                    plotly_vis.ms2_data["Precursor Intensity"].append(raw_parser.GetPrecursorIntensityFromScanNumber(scan_number))
+                    plotly_vis.ms2_data["Selected Ion Intensity"].append(raw_parser.GetPrecursorIntensityFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Charge State"].append(raw_parser.GetMS2ChargeFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Ion Injection Time (ms)"].append(raw_parser.GetIonInjectionTimeFromScanNumber(scan_number))
                     plotly_vis.ms2_data.setdefault("Base Peak Intensity", []).append(raw_parser.GetBasePeakForScanNumber(scan_number)[1])
@@ -176,7 +249,10 @@ def extract_scan_header_to_csv_ms1(
         option_functions = {
             "Total Ion Current": lambda sn: raw_parser.GetTICForScanNumber(sn),
             "Total Number of Peaks": lambda sn: raw_parser.GetNumPeaksForScanNumber(sn),
+            "Scan Start Time (min)": lambda sn: raw_parser.GetRetentionTimeFromScanNumber(sn),
+            "Retention Time (min)": lambda sn: raw_parser.GetRetentionTimeFromScanNumber(sn),
             "Retention Time (s)": lambda sn: raw_parser.GetRetentionTimeFromScanNumber(sn),
+            "Base Peak m/z": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[0],
             "Base Peak Mass": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[0],
             "Base Peak Intensity": lambda sn: raw_parser.GetBasePeakForScanNumber(sn)[1],
             "Ion Injection Time (ms)": lambda sn: raw_parser.GetIonInjectionTimeFromScanNumber(sn),
@@ -200,9 +276,8 @@ def extract_scan_header_to_csv_ms1(
                 trailer_data = raw_parser.GetTrailerExtraInformaionEdited(scan_number) or {}
 
                 for option in selected_options:
-                    if option in trailer_data:
-                        value = trailer_data.get(option, "N/A")
-                    else:
+                    value = trailer_value(trailer_data, option)
+                    if value is None:
                         value = option_functions.get(option, lambda sn: "N/A")(scan_number)
                     row.append(value)
 
@@ -210,12 +285,12 @@ def extract_scan_header_to_csv_ms1(
 
                 if graphical_representation and plotly_vis is not None:
                     plotly_vis.ms1_scans.append(scan_number)
-                    plotly_vis.ms1_data["Retention Time (s)"].append(raw_parser.GetRetentionTimeFromScanNumber(scan_number))
+                    plotly_vis.ms1_data["Scan Start Time (min)"].append(raw_parser.GetRetentionTimeFromScanNumber(scan_number))
                     plotly_vis.ms1_data["Elapsed Scan Time (sec)"].append(raw_parser.GetElaspedScanTimeFromScanNumber(scan_number))
                     plotly_vis.ms1_data["Total Ion Current"].append(raw_parser.GetTICForScanNumber(scan_number))
                     plotly_vis.ms1_data["Total Number of Peaks"].append(raw_parser.GetNumPeaksForScanNumber(scan_number))
                     plotly_vis.ms1_data["Base Peak Intensity"].append(raw_parser.GetBasePeakForScanNumber(scan_number)[1])
-                    plotly_vis.ms1_data["Base Peak Mass"].append(raw_parser.GetBasePeakForScanNumber(scan_number)[0])
+                    plotly_vis.ms1_data["Base Peak m/z"].append(raw_parser.GetBasePeakForScanNumber(scan_number)[0])
                     plotly_vis.ms1_data["Ion Injection Time (ms)"].append(raw_parser.GetIonInjectionTimeFromScanNumber(scan_number))
 
         if graphical_representation and plotly_vis is not None:
@@ -580,7 +655,7 @@ def run_cli(args):
             overlay_panels=[
                 ("Overlay TIC (MS2)", "TIC", all_ms2_tic),
                 ("Overlay Total Peaks (MS2)", "Total Peaks", all_ms2_tnp),
-                ("Overlay Precursor Intensity (MS2)", "Precursor Intensity", all_ms2_prec),
+                ("Overlay Selected Ion Intensity (MS2)", "Selected Ion Intensity", all_ms2_prec),
             ],
             box_panels=[
                 ("MS2 TIC Boxplot (across samples)", "log10(TIC+1)", ms2_box_tic, True),
@@ -589,4 +664,3 @@ def run_cli(args):
             ],
         )
         print(f"[VIS] MS2 comparison: {out}")
-

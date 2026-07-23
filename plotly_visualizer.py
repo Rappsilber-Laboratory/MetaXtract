@@ -157,25 +157,25 @@ class PlotlyMS1Visualizer:
         self.output_dir = Path(output_dir)
         self.ms1_scans: List[int] = []
         self.ms1_data: Dict[str, List] = {
-            "Retention Time (min)": [],
+            "Scan Start Time (min)": [],
             "Elapsed Scan Time (sec)": [],
             "Total Ion Current": [],
             "Total Number of Peaks": [],
             "Base Peak Intensity": [],
-            "Base Peak Mass": [],
+            "Base Peak m/z": [],
             "Ion Injection Time (ms)": [],
         }
 
     def _figs(self) -> List[_Fig]:
         figs: List[_Fig] = []
-        rt_s = _farr(self.ms1_data["Retention Time (min)"])
+        rt_s = _farr(self.ms1_data["Scan Start Time (min)"])
         if rt_s.size == 0:
             return figs
 
         rt_min = rt_s #/ 60.0
         tic = _farr(self.ms1_data["Total Ion Current"])
         bpi = _farr(self.ms1_data["Base Peak Intensity"])
-        bpm = _farr(self.ms1_data["Base Peak Mass"])
+        bpm = _farr(self.ms1_data["Base Peak m/z"])
         iit_ms = _farr(self.ms1_data["Ion Injection Time (ms)"])
         tnp = _farr(self.ms1_data["Total Number of Peaks"])
 
@@ -216,10 +216,10 @@ class PlotlyMS1Visualizer:
         if iit_ms.size:
             iit_s = iit_ms / 1000.0
             figs.append(_Fig(
-                "Ion Injection Time (s) vs RT (s)",
+                "Ion Injection Time (s) vs Scan Start Time (min)",
                 go.Figure(
                     data=[go.Scatter(x=rt_s, y=iit_s, mode="lines", name=self.single_file_name)],
-                    layout=go.Layout(title="MS1 IIT (s) vs RT (s)", xaxis_title="RT (s)", yaxis_title="IIT (s)"),
+                    layout=go.Layout(title="MS1 IIT (s) vs Scan Start Time (min)", xaxis_title="Scan Start Time (min)", yaxis_title="IIT (s)"),
                 )
             ))
 
@@ -260,21 +260,21 @@ class PlotlyMS1Visualizer:
         return outs
 
     def tic_trace(self) -> Tuple[np.ndarray, np.ndarray]:
-        rt_s = _farr(self.ms1_data["Retention Time (min)"])
+        rt_s = _farr(self.ms1_data["Scan Start Time (min)"])
         tic = _farr(self.ms1_data["Total Ion Current"])
         if rt_s.size == 0 or tic.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
         return rt_s, tic #/ 60.0, tic
     
     def bpi_trace(self):
-        rt_s = _farr(self.ms1_data["Retention Time (min)"])
+        rt_s = _farr(self.ms1_data["Scan Start Time (min)"])
         bpi = _farr(self.ms1_data["Base Peak Intensity"])
         if rt_s.size == 0 or bpi.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
         return rt_s, bpi #/ 60.0, bpi
 
     def tnp_trace(self):
-        rt_s = _farr(self.ms1_data["Retention Time (min)"])
+        rt_s = _farr(self.ms1_data["Scan Start Time (min)"])
         tnp = _farr(self.ms1_data["Total Number of Peaks"])
         if rt_s.size == 0 or tnp.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
@@ -288,11 +288,11 @@ class PlotlyMS2Visualizer:
         self.output_dir = Path(output_dir)
         self.ms2_scans: List[int] = []
         self.ms2_data: Dict[str, List] = {
-            "Retention Time (min)": [],
+            "Scan Start Time (min)": [],
             "Elapsed Scan Time (sec)": [],
             "Total Ion Current": [],
             "Total Number of Peaks": [],
-            "Precursor Intensity": [],
+            "Selected Ion Intensity": [],
             "Charge State": [],
             "Ion Injection Time (ms)": [],
             "Base Peak Intensity": [],
@@ -300,14 +300,14 @@ class PlotlyMS2Visualizer:
 
     def _figs(self) -> List[_Fig]:
         figs: List[_Fig] = []
-        rt_s = _farr(self.ms2_data["Retention Time (min)"])
+        rt_s = _farr(self.ms2_data["Scan Start Time (min)"])
         if rt_s.size == 0:
             return figs
 
         rt_min = rt_s #/ 60.0
         tic = _farr(self.ms2_data["Total Ion Current"])
         tnp = _farr(self.ms2_data["Total Number of Peaks"])
-        prec = _farr(self.ms2_data["Precursor Intensity"])
+        prec = _farr(self.ms2_data["Selected Ion Intensity"])
         cs = _iarr(self.ms2_data["Charge State"])
         iit_ms = _farr(self.ms2_data["Ion Injection Time (ms)"])
         est = _farr(self.ms2_data["Elapsed Scan Time (sec)"])
@@ -332,29 +332,29 @@ class PlotlyMS2Visualizer:
 
         if prec.size:
             figs.append(_Fig(
-                "Precursor Intensity vs RT (min)",
+                "Selected Ion Intensity vs RT (min)",
                 go.Figure(
                     data=[go.Scatter(x=rt_min, y=prec, mode="lines", name=self.single_file_name)],
-                    layout=go.Layout(title="MS2 Precursor Intensity vs RT (min)", xaxis_title="RT (min)", yaxis_title="Precursor Intensity"),
+                    layout=go.Layout(title="MS2 Selected Ion Intensity vs RT (min)", xaxis_title="RT (min)", yaxis_title="Selected Ion Intensity"),
                 )
             ))
 
         if iit_ms.size and prec.size:
             iit_s = iit_ms / 1000.0
             figs.append(_Fig(
-                "2D hist: log10(Precursor Intensity) vs IIT (s)",
+                "2D hist: log10(Selected Ion Intensity) vs IIT (s)",
                 go.Figure(
                     data=[go.Histogram2d(x=iit_s, y=_safe_log10(prec), nbinsx=60, nbinsy=60)],
-                    layout=go.Layout(title="MS2 log10(Precursor Intensity) vs IIT (s)", xaxis_title="IIT (s)", yaxis_title="log10(Precursor Intensity)"),
+                    layout=go.Layout(title="MS2 log10(Selected Ion Intensity) vs IIT (s)", xaxis_title="IIT (s)", yaxis_title="log10(Selected Ion Intensity)"),
                 )
             ))
 
         if tnp.size and prec.size:
             figs.append(_Fig(
-                "2D hist: log10(Precursor Intensity) vs Total Peaks",
+                "2D hist: log10(Selected Ion Intensity) vs Total Peaks",
                 go.Figure(
                     data=[go.Histogram2d(x=tnp, y=_safe_log10(prec), nbinsx=60, nbinsy=60)],
-                    layout=go.Layout(title="MS2 log10(Precursor Intensity) vs Total Peaks", xaxis_title="Total Peaks", yaxis_title="log10(Precursor Intensity)"),
+                    layout=go.Layout(title="MS2 log10(Selected Ion Intensity) vs Total Peaks", xaxis_title="Total Peaks", yaxis_title="log10(Selected Ion Intensity)"),
                 )
             ))
 
@@ -405,22 +405,22 @@ class PlotlyMS2Visualizer:
         return outs
 
     def tic_trace(self) -> Tuple[np.ndarray, np.ndarray]:
-        rt_s = _farr(self.ms2_data["Retention Time (min)"])
+        rt_s = _farr(self.ms2_data["Scan Start Time (min)"])
         tic = _farr(self.ms2_data["Total Ion Current"])
         if rt_s.size == 0 or tic.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
         return rt_s, tic # / 60.0, tic
     
     def tnp_trace(self):
-        rt_s = _farr(self.ms2_data["Retention Time (min)"])
+        rt_s = _farr(self.ms2_data["Scan Start Time (min)"])
         tnp = _farr(self.ms2_data["Total Number of Peaks"])
         if rt_s.size == 0 or tnp.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
         return rt_s, tnp # / 60.0, tnp
 
     def prec_trace(self):
-        rt_s = _farr(self.ms2_data["Retention Time (min)"])
-        prec = _farr(self.ms2_data["Precursor Intensity"])
+        rt_s = _farr(self.ms2_data["Scan Start Time (min)"])
+        prec = _farr(self.ms2_data["Selected Ion Intensity"])
         if rt_s.size == 0 or prec.size == 0:
             return np.asarray([], dtype=float), np.asarray([], dtype=float)
         return rt_s, prec # / 60.0, prec

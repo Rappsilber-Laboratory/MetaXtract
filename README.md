@@ -91,7 +91,7 @@ scan_header:
     select_all: false
     columns:
       Total Ion Current: true
-      Retention Time (s): true
+      Scan Start Time (min): true
       Scan Mode: false
   MS2:
     select_all: true
@@ -117,6 +117,39 @@ visualisation:
 - MS1 scan headers
 - MS2 scan headers
 Each allows: Selecting individual columns or Select all (complete MS1 / MS2). `Scan Mode` can be selected for both MS1 and MS2.
+
+#### Output Column Naming
+MetaXtract uses PSI-MS/mzML-style names where a clear controlled vocabulary term exists. Thermo trailer-extra fields without a direct PSI-MS match are prefixed with `thermo_`. Internally, old Thermo labels such as `Base Peak Mass` and `Retention Time (s)` are still recognized as source aliases, but new CSV exports use the names below.
+
+| Output column | PSI-MS / mzML match | Notes |
+|---|---|---|
+| `Scan Start Time (min)` | `scan start time`, `MS:1000016` | Thermo returns retention time in minutes. Replaces old ambiguous `Retention Time (s)` / `Retention Time (min)`. |
+| `Total Ion Current` | `total ion current`, `MS:1000285` | Direct match. |
+| `Base Peak Intensity` | `base peak intensity`, `MS:1000505` | Direct match. |
+| `Base Peak m/z` | `base peak m/z`, `MS:1000504` | Replaces old `Base Peak Mass`; the value is m/z, not neutral mass. |
+| `Ion Injection Time (ms)` | `ion injection time`, `MS:1000927` | Direct match; unit is milliseconds. |
+| `Collision Energy` | `collision energy`, `MS:1000045` | Direct match when the source value is absolute collision energy. |
+| `Collision Energy (eV)` | `collision energy`, `MS:1000045` | Same concept with explicit electronvolt unit. |
+| `Normalized Collision Energy (%)` | `normalized collision energy`, `MS:1000138` | Replaces old `HCD Energy` when Thermo reports a normalized percent value. |
+| `Dissociation Method` | `dissociation method`, `MS:1000044` | Replaces old `Activation Type`. |
+| `Mass Analyzer Type` | `mass analyzer type`, `MS:1000443` | Direct match. |
+| `Detector Type` | `detector type`, `MS:1000026` | Direct match. |
+| `Charge State` | `charge state`, `MS:1000041` | Direct match. |
+| `Filter String` | `filter string`, `MS:1000512` | Replaces old `Scan Description`. |
+| `Scan Window m/z Range` | `scan window lower limit`, `MS:1000501`; `scan window upper limit`, `MS:1000500` | Exported as a compact `lower-upper` range. |
+| `Isolation Window Width (m/z)` | Derived from `isolation window lower offset`, `MS:1000828`, and `isolation window upper offset`, `MS:1000829` | Kept as width because that is what Thermo exposes directly. |
+| `Selected Ion Intensity` | `peak intensity`, `MS:1000042`, in precursor selected-ion context | Replaces old `Precursor Intensity`. |
+| `Experimental Precursor Monoisotopic m/z` | `experimental precursor monoisotopic m/z`, `MS:1003208` | Replaces old `Monoisotopic M/Z`. |
+| `Sampling Frequency` | `sampling frequency`, `MS:1000029` | Only a direct match if the Thermo source value is signal sampling frequency. |
+| `FAIMS Compensation Voltage` | `FAIMS compensation voltage`, `MS:1001581` | Replaces old `FAIMS CV`. |
+
+Columns without a direct one-to-one PSI-MS scan-header term but still kept as general, non-vendor labels:
+
+`Total Number of Peaks`, `Scan Mode`.
+
+Columns intentionally marked as Thermo-specific because they are RAW trailer fields or instrument/vendor implementation details:
+
+`thermo_Number of Channels`, `thermo_AGC`, `thermo_Micro Scan Count`, `thermo_Elapsed Scan Time (sec)`, `thermo_Average Scan by Inst`, `thermo_Orbitrap Resolution`, `thermo_API Process Delay`, `thermo_Dependency Type`, `thermo_Multi Inject Info`, `thermo_Master Scan Number`, `thermo_Access ID`, `thermo_Conversion Parameter I`, `thermo_Conversion Parameter A`, `thermo_Conversion Parameter B`, `thermo_Conversion Parameter C`, `thermo_Conversion Parameter D`, `thermo_Conversion Parameter E`, `thermo_Temperature Comp. (ppm)`, `thermo_RF Comp. (ppm)`, `thermo_Space Charge Comp. (ppm)`, `thermo_Resolution Comp. (ppm)`, `thermo_Number of LM Found`, `thermo_LM Correction (ppm)`, `thermo_RawOvFtT`, `thermo_Injection t0`, `thermo_Reagent Ion Injection Time (ms)`, `thermo_FAIMS Voltage On`, `thermo_Multiple Injection`.
 
 #### Output
 - CSV tables
@@ -235,7 +268,6 @@ This project is licensed under the Apache-2.0 license.
 **RawFileReader** reading tool. Copyright © 2016 by Thermo Fisher Scientific, Inc. All rights reserved. See [THERMO_LICENSE.txt](https://github.com/lutfia95/MetaXtract/blob/main/os_data/THERMO_LICENSE.txt) for licensing information. 
 Note: anyone recieving RawFileReader as part of a larger software distribution (in the current context, as part of MetaXtract) is considered an "end user" under 
 section 3.3 of the RawFileReader License, and is not granted rights to redistribute RawFileReader.
-
 
 
 
