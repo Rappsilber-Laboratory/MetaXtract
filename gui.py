@@ -52,12 +52,12 @@ class MS1Visualizer:
         self.output_dir = Path(output_dir)
         self.ms1_scans = []
         self.ms1_data = {
-            "Retention Time (min)": [],
+            "Scan Start Time (min)": [],
             "Elapsed Scan Time (sec)": [],
             "Total Ion Current": [],
             "Total Number of Peaks": [],
             "Base Peak Intensity": [],
-            "Base Peak Mass": [],
+            "Base Peak m/z": [],
             "Ion Injection Time (ms)": [],
         }
 
@@ -71,11 +71,11 @@ class MS2Visualizer:
         self.output_dir = Path(output_dir)
         self.ms2_scans = []
         self.ms2_data = {
-            "Retention Time (min)": [],
+            "Scan Start Time (min)": [],
             "Elapsed Scan Time (sec)": [],
             "Total Ion Current": [],
             "Total Number of Peaks": [],
-            "Precursor Intensity": [],
+            "Selected Ion Intensity": [],
             "Charge State": [],
             "Ion Injection Time (ms)": [],
         }
@@ -171,6 +171,60 @@ def td_get(trailer_data, key):
         return None
     #print(trailer_data)
     return trailer_data.get(key, None)
+
+
+COLUMN_SOURCE_ALIASES = {
+    "Scan Start Time (min)": ("Retention Time (min)", "Retention Time (s)"),
+    "Base Peak m/z": ("Base Peak Mass",),
+    "Selected Ion Intensity": ("Precursor Intensity",),
+    "Scan Window m/z Range": ("Mass Ranges",),
+    "Filter String": ("Scan Description",),
+    "Dissociation Method": ("Activation Type",),
+    "Sampling Frequency": ("Frequency",),
+    "Experimental Precursor Monoisotopic m/z": ("Monoisotopic M/Z",),
+    "Isolation Window Width (m/z)": ("MS2 Isolation Width",),
+    "Normalized Collision Energy (%)": ("HCD Energy",),
+    "Collision Energy (eV)": ("HCD Energy eV",),
+    "FAIMS Compensation Voltage": ("FAIMS CV",),
+    "thermo_Number of Channels": ("Number of Channels",),
+    "thermo_AGC": ("AGC",),
+    "thermo_Micro Scan Count": ("Micro Scan Count",),
+    "thermo_Elapsed Scan Time (sec)": ("Elapsed Scan Time (sec)",),
+    "thermo_Average Scan by Inst": ("Average Scan by Inst",),
+    "thermo_Orbitrap Resolution": ("Orbitrap Resolution",),
+    "thermo_API Process Delay": ("API Process Delay",),
+    "thermo_Dependency Type": ("Dependency Type",),
+    "thermo_Multi Inject Info": ("Multi Inject Info",),
+    "thermo_Master Scan Number": ("Master Scan Number",),
+    "thermo_Access ID": ("Access ID",),
+    "thermo_Conversion Parameter I": ("Conversion Parameter I",),
+    "thermo_Conversion Parameter A": ("Conversion Parameter A",),
+    "thermo_Conversion Parameter B": ("Conversion Parameter B",),
+    "thermo_Conversion Parameter C": ("Conversion Parameter C",),
+    "thermo_Conversion Parameter D": ("Conversion Parameter D",),
+    "thermo_Conversion Parameter E": ("Conversion Parameter E",),
+    "thermo_Temperature Comp. (ppm)": ("Temperature Comp. (ppm)",),
+    "thermo_RF Comp. (ppm)": ("RF Comp. (ppm)",),
+    "thermo_Space Charge Comp. (ppm)": ("Space Charge Comp. (ppm)",),
+    "thermo_Resolution Comp. (ppm)": ("Resolution Comp. (ppm)",),
+    "thermo_Number of LM Found": ("Number of LM Found",),
+    "thermo_LM Correction (ppm)": ("LM Correction (ppm)",),
+    "thermo_RawOvFtT": ("RawOvFtT",),
+    "thermo_Injection t0": ("Injection t0",),
+    "thermo_Reagent Ion Injection Time (ms)": ("Reagent Ion Injection Time (ms)",),
+    "thermo_FAIMS Voltage On": ("FAIMS Voltage On",),
+    "thermo_Multiple Injection": ("Multiple Injection",),
+}
+
+
+def trailer_value(trailer_data, output_label: str):
+    if not trailer_data:
+        return None
+    for key in (output_label, *COLUMN_SOURCE_ALIASES.get(output_label, ())):
+        value = trailer_data.get(key, None)
+        if value not in (None, ""):
+            return value
+    return None
 
 
 class LogWindow(QDialog):
@@ -306,11 +360,11 @@ class _ExtractionWorker(QObject):
                 trailer_data = safe_call(lambda: raw_parser.GetTrailerExtraInformaionEdited(scan_number), {}) or {}
 
                 def opt_value(opt: str):
-                    if trailer_data and opt in trailer_data:
-                        v = trailer_data.get(opt, None)
-                        return v if v not in (None, "") else "N/A"
+                    v = trailer_value(trailer_data, opt)
+                    if v is not None:
+                        return v
 
-                    if opt == "Retention Time (min)":
+                    if opt in ("Scan Start Time (min)", "Retention Time (min)", "Retention Time (s)"):
                         v = safe_call(lambda: raw_parser.GetRetentionTimeFromScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
@@ -322,7 +376,7 @@ class _ExtractionWorker(QObject):
                         v = safe_call(lambda: raw_parser.GetNumPeaksForScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
-                    if opt == "Base Peak Mass":
+                    if opt in ("Base Peak m/z", "Base Peak Mass"):
                         bp = safe_call(lambda: raw_parser.GetBasePeakForScanNumber(scan_number), (None, None))
                         return bp[0] if isinstance(bp, (list, tuple)) and len(bp) >= 2 and bp[0] not in (None, "") else "N/A"
 
@@ -330,11 +384,11 @@ class _ExtractionWorker(QObject):
                         bp = safe_call(lambda: raw_parser.GetBasePeakForScanNumber(scan_number), (None, None))
                         return bp[1] if isinstance(bp, (list, tuple)) and len(bp) >= 2 and bp[1] not in (None, "") else "N/A"
 
-                    if opt == "Precursor Intensity":
+                    if opt in ("Selected Ion Intensity", "Precursor Intensity"):
                         v = safe_call(lambda: raw_parser.GetPrecursorIntensityFromScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
-                    if opt == "Mass Ranges":
+                    if opt in ("Scan Window m/z Range", "Mass Ranges"):
                         n = safe_call(lambda: raw_parser.GetNumberOfMassRangesFromScanNumber(scan_number), 0) or 0
                         ranges = []
                         for i in range(n):
@@ -344,7 +398,7 @@ class _ExtractionWorker(QObject):
                             ranges.append(f"{lo}-{hi}")
                         return "; ".join(ranges) if ranges else "N/A"
 
-                    if opt == "Scan Description":
+                    if opt in ("Filter String", "Scan Description"):
                         v = safe_call(lambda: raw_parser.GetScanEventStringForScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
@@ -356,13 +410,13 @@ class _ExtractionWorker(QObject):
                         return safe_call(lambda: raw_parser.GetDetectorTypeFromScanNumber(scan_number), "N/A")
                     if opt == "Mass Analyzer Type":
                         return safe_call(lambda: raw_parser.GetMassAnalyzerTypeFromScanNumber(scan_number), "N/A")
-                    if opt == "Activation Type":
+                    if opt in ("Dissociation Method", "Activation Type"):
                         return safe_call(lambda: raw_parser.GetActivationTypeForScanNumber(scan_number), "N/A")
                     if opt == "Collision Energy":
                         return safe_call(lambda: raw_parser.GetCollisionEnergyForScanNumber(scan_number), "N/A")
-                    if opt == "Frequency":
+                    if opt in ("Sampling Frequency", "Frequency"):
                         return safe_call(lambda: raw_parser.GetFrequencyForScanNumber(scan_number), "N/A")
-                    if opt == "Number of Channels":
+                    if opt in ("thermo_Number of Channels", "Number of Channels"):
                         return safe_call(lambda: raw_parser.GetNumChannelsForScanNumber(scan_number), "N/A")
 
                     return "N/A"
@@ -401,11 +455,11 @@ class _ExtractionWorker(QObject):
                     bp_int = to_float(bp[1]) if isinstance(bp, (list, tuple)) and len(bp) >= 2 else 0.0
                     plotly_vis.ms2_data["Base Peak Intensity"].append(bp_int or 0.0)
                     plotly_vis.ms2_scans.append(scan_number)
-                    plotly_vis.ms2_data["Retention Time (min)"].append(rt if rt is not None else 0.0)
+                    plotly_vis.ms2_data["Scan Start Time (min)"].append(rt if rt is not None else 0.0)
                     plotly_vis.ms2_data["Elapsed Scan Time (sec)"].append(est or 0.0)
                     plotly_vis.ms2_data["Total Ion Current"].append(tic or 0.0)
                     plotly_vis.ms2_data["Total Number of Peaks"].append(tnp or 0)
-                    plotly_vis.ms2_data["Precursor Intensity"].append(prec_i or 0.0)
+                    plotly_vis.ms2_data["Selected Ion Intensity"].append(prec_i or 0.0)
                     plotly_vis.ms2_data["Charge State"].append(cs or 0)
                     plotly_vis.ms2_data["Ion Injection Time (ms)"].append(iit or 0.0)
 
@@ -444,11 +498,11 @@ class _ExtractionWorker(QObject):
                 trailer_data = safe_call(lambda: raw_parser.GetTrailerExtraInformaionEdited(scan_number), {}) or {}
 
                 def opt_value(opt: str):
-                    if trailer_data and opt in trailer_data:
-                        v = trailer_data.get(opt, None)
-                        return v if v not in (None, "") else "N/A"
+                    v = trailer_value(trailer_data, opt)
+                    if v is not None:
+                        return v
 
-                    if opt == "Retention Time (min)":
+                    if opt in ("Scan Start Time (min)", "Retention Time (min)", "Retention Time (s)"):
                         v = safe_call(lambda: raw_parser.GetRetentionTimeFromScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
@@ -460,7 +514,7 @@ class _ExtractionWorker(QObject):
                         v = safe_call(lambda: raw_parser.GetNumPeaksForScanNumber(scan_number))
                         return v if v not in (None, "") else "N/A"
 
-                    if opt == "Base Peak Mass":
+                    if opt in ("Base Peak m/z", "Base Peak Mass"):
                         bp = safe_call(lambda: raw_parser.GetBasePeakForScanNumber(scan_number), (None, None))
                         return bp[0] if isinstance(bp, (list, tuple)) and len(bp) >= 2 and bp[0] not in (None, "") else "N/A"
 
@@ -508,11 +562,11 @@ class _ExtractionWorker(QObject):
                     bp_int = to_float(bp[1]) if isinstance(bp, (list, tuple)) and len(bp) >= 2 else 0.0
 
                     plotly_vis.ms1_scans.append(scan_number)
-                    plotly_vis.ms1_data["Retention Time (min)"].append(rt if rt is not None else 0.0)
+                    plotly_vis.ms1_data["Scan Start Time (min)"].append(rt if rt is not None else 0.0)
                     plotly_vis.ms1_data["Elapsed Scan Time (sec)"].append(est or 0.0)
                     plotly_vis.ms1_data["Total Ion Current"].append(tic or 0.0)
                     plotly_vis.ms1_data["Total Number of Peaks"].append(tnp or 0)
-                    plotly_vis.ms1_data["Base Peak Mass"].append(bp_mass or 0.0)
+                    plotly_vis.ms1_data["Base Peak m/z"].append(bp_mass or 0.0)
                     plotly_vis.ms1_data["Base Peak Intensity"].append(bp_int or 0.0)
                     plotly_vis.ms1_data["Ion Injection Time (ms)"].append(iit or 0.0)
 
@@ -610,9 +664,9 @@ class _ExtractionWorker(QObject):
                 plotly_ms2 = PlotlyMS2Visualizer(base, str(out_dir)) if self.plotly_enabled else None
 
                 if self.plotly_enabled and not self.selected_header_options_ms2:
-                    self.selected_header_options_ms2 = ["Retention Time (min)"]
+                    self.selected_header_options_ms2 = ["Scan Start Time (min)"]
                 if self.plotly_enabled and not self.selected_header_options_ms1:
-                    self.selected_header_options_ms1 = ["Retention Time (min)"]
+                    self.selected_header_options_ms1 = ["Scan Start Time (min)"]
                     
                 info_tsv_path = None
                 if "File-based Details" in self.selected_options:
@@ -789,7 +843,7 @@ class _ExtractionWorker(QObject):
                     overlay_panels=[
                         ("Overlay TIC (MS2)", "TIC", all_ms2_tic),
                         ("Overlay Total Peaks (MS2)", "Total Peaks", all_ms2_tnp),
-                        ("Overlay Precursor Intensity (MS2)", "Precursor Intensity", all_ms2_prec),
+                        ("Overlay Selected Ion Intensity (MS2)", "Selected Ion Intensity", all_ms2_prec),
                     ],
                     box_panels=[
                         ("MS2 TIC Boxplot (across samples)", "log10(TIC+1)", ms2_box_tic, True),
@@ -975,19 +1029,19 @@ class MetaXtract_GUI(QMainWindow):
         ms2_inner_l = QVBoxLayout(ms2_inner)
 
         ms2_cols = [
-            "Total Ion Current", "Total Number of Peaks", "Number of Channels", "Frequency",
-            "Collision Energy", "Retention Time (s)", "Mass Ranges", "Precursor Intensity",
-            "Scan Description", "Scan Mode", "AGC", "Micro Scan Count", "Ion Injection Time (ms)",
-            "Elapsed Scan Time (sec)", "Activation Type", "Mass Analyzer Type", "Detector Type",
-            "Base Peak Mass", "Average Scan by Inst", "Orbitrap Resolution", "API Process Delay",
-            "Dependency Type", "Multi Inject Info", "Base Peak Intensity", "Master Scan Number",
-            "Monoisotopic M/Z", "Charge State", "HCD Energy", "HCD Energy eV",
-            "MS2 Isolation Width", "Access ID", "Conversion Parameter I", "Conversion Parameter A",
-            "Conversion Parameter B", "Conversion Parameter C", "Conversion Parameter D",
-            "Conversion Parameter E", "Temperature Comp. (ppm)", "RF Comp. (ppm)",
-            "Space Charge Comp. (ppm)", "Resolution Comp. (ppm)", "Number of LM Found",
-            "LM Correction (ppm)", "RawOvFtT", "Injection t0", "Reagent Ion Injection Time (ms)",
-            "FAIMS Voltage On", "FAIMS CV",
+            "Total Ion Current", "Total Number of Peaks", "thermo_Number of Channels", "Sampling Frequency",
+            "Collision Energy", "Scan Start Time (min)", "Scan Window m/z Range", "Selected Ion Intensity",
+            "Filter String", "Scan Mode", "thermo_AGC", "thermo_Micro Scan Count", "Ion Injection Time (ms)",
+            "thermo_Elapsed Scan Time (sec)", "Dissociation Method", "Mass Analyzer Type", "Detector Type",
+            "Base Peak m/z", "thermo_Average Scan by Inst", "thermo_Orbitrap Resolution", "thermo_API Process Delay",
+            "thermo_Dependency Type", "thermo_Multi Inject Info", "Base Peak Intensity", "thermo_Master Scan Number",
+            "Experimental Precursor Monoisotopic m/z", "Charge State", "Normalized Collision Energy (%)", "Collision Energy (eV)",
+            "Isolation Window Width (m/z)", "thermo_Access ID", "thermo_Conversion Parameter I", "thermo_Conversion Parameter A",
+            "thermo_Conversion Parameter B", "thermo_Conversion Parameter C", "thermo_Conversion Parameter D",
+            "thermo_Conversion Parameter E", "thermo_Temperature Comp. (ppm)", "thermo_RF Comp. (ppm)",
+            "thermo_Space Charge Comp. (ppm)", "thermo_Resolution Comp. (ppm)", "thermo_Number of LM Found",
+            "thermo_LM Correction (ppm)", "thermo_RawOvFtT", "thermo_Injection t0", "thermo_Reagent Ion Injection Time (ms)",
+            "thermo_FAIMS Voltage On", "FAIMS Compensation Voltage",
         ]
         for c in ms2_cols:
             cb = QCheckBox(c, self)
@@ -1010,8 +1064,8 @@ class MetaXtract_GUI(QMainWindow):
 
         ms1_cols = [
             "Ion Injection Time (ms)", "Total Number of Peaks", "Total Ion Current",
-            "Retention Time (s)", "Base Peak Intensity", "Base Peak Mass",
-            "Scan Mode", "Multi Inject Info", "Multiple Injection",
+            "Scan Start Time (min)", "Base Peak Intensity", "Base Peak m/z",
+            "Scan Mode", "thermo_Multi Inject Info", "thermo_Multiple Injection",
         ]
         for c in ms1_cols:
             cb = QCheckBox(c, self)

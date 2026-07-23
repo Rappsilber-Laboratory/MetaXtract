@@ -29,61 +29,61 @@ scan_header:
       Ion Injection Time (ms): true
       Total Number of Peaks: true
       Total Ion Current: false
-      Retention Time (s): false
+      Scan Start Time (min): false
       Base Peak Intensity: false
-      Base Peak Mass: false
+      Base Peak m/z: false
       Scan Mode: false
-      Multi Inject Info: false
-      Multiple Injection: false
+      thermo_Multi Inject Info: false
+      thermo_Multiple Injection: false
 
   MS2:
     select_all: true
     columns:
       Total Ion Current: true
       Total Number of Peaks: true
-      Number of Channels: false
-      Frequency: false
+      thermo_Number of Channels: false
+      Sampling Frequency: false
       Collision Energy: false
-      Retention Time (s): false
-      Mass Ranges: false
+      Scan Start Time (min): false
+      Scan Window m/z Range: false
       Scan Mode: false
-      Precursor Intensity: false
-      Scan Description: false
-      AGC: false
-      Micro Scan Count: false
+      Selected Ion Intensity: false
+      Filter String: false
+      thermo_AGC: false
+      thermo_Micro Scan Count: false
       Ion Injection Time (ms): false
-      Elapsed Scan Time (sec): false
-      Activation Type: false
+      thermo_Elapsed Scan Time (sec): false
+      Dissociation Method: false
       Mass Analyzer Type: false
       Detector Type: false
-      Base Peak Mass: false
-      Average Scan by Inst: false
-      Orbitrap Resolution: false
-      API Process Delay: true
-      Dependency Type: false
-      Multi Inject Info: false
+      Base Peak m/z: false
+      thermo_Average Scan by Inst: false
+      thermo_Orbitrap Resolution: false
+      thermo_API Process Delay: true
+      thermo_Dependency Type: false
+      thermo_Multi Inject Info: false
       Base Peak Intensity: false
-      Master Scan Number: false
-      Monoisotopic M/Z: false
+      thermo_Master Scan Number: false
+      Experimental Precursor Monoisotopic m/z: false
       Charge State: false
-      HCD Energy: false
-      HCD Energy eV: false
-      MS2 Isolation Width: false
-      Access ID: false
-      Conversion Parameter I: false
-      Conversion Parameter A: false
-      Conversion Parameter B: false
-      Conversion Parameter C: false
-      Conversion Parameter D: false
-      Conversion Parameter E: false
-      Temperature Comp. (ppm): false
-      RF Comp. (ppm): false
-      Space Charge Comp. (ppm): false
-      Resolution Comp. (ppm): false
-      Number of LM Found: false
-      LM Correction (ppm): false
-      RawOvFtT: false
-      Injection t0: false
-      Reagent Ion Injection Time (ms): false
-      FAIMS Voltage On: false
-      FAIMS CV: false
+      Normalized Collision Energy (%): false
+      Collision Energy (eV): false
+      Isolation Window Width (m/z): false
+      thermo_Access ID: false
+      thermo_Conversion Parameter I: false
+      thermo_Conversion Parameter A: false
+      thermo_Conversion Parameter B: false
+      thermo_Conversion Parameter C: false
+      thermo_Conversion Parameter D: false
+      thermo_Conversion Parameter E: false
+      thermo_Temperature Comp. (ppm): false
+      thermo_RF Comp. (ppm): false
+      thermo_Space Charge Comp. (ppm): false
+      thermo_Resolution Comp. (ppm): false
+      thermo_Number of LM Found: false
+      thermo_LM Correction (ppm): false
+      thermo_RawOvFtT: false
+      thermo_Injection t0: false
+      thermo_Reagent Ion Injection Time (ms): false
+      thermo_FAIMS Voltage On: false
+      FAIMS Compensation Voltage: false
