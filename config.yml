@@ -17,6 +17,16 @@ visualisation:
   enabled: true
   export_format: "html"
 
+sdrf:
+  # Optional CLI/HPC SDRF support.
+  # draft: true writes metadata.sdrf.draft.tsv during the normal run, with
+  # only RAW-derived fields filled. Users can complete it after processing.
+  draft: false
+  draft_output: "metadata.sdrf.draft.tsv"
+  # metadata can point to a completed user-filled SDRF metadata TSV.
+  metadata: null
+  output: "metadata.sdrf.tsv"
+
 multi_comparison:
   enabled: true
   samples: [1, 2, 3]    # Select 2 or more samples using 1-based indices into io.input

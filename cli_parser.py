@@ -23,6 +23,14 @@ from runtime_metrics import (
     format_bytes,
     format_file_usage,
 )
+from sdrf_export import (
+    draft_sdrf_row_for_file,
+    enrich_sdrf_rows_for_file,
+    read_sdrf_user_metadata,
+    validate_sdrf_metadata,
+    write_sdrf,
+    write_sdrf_cli_template,
+)
 
 
 def _cancel_requested(should_stop=None) -> bool:
@@ -462,6 +470,24 @@ def write_info_tsv(raw_parser, out_tsv_path: str, should_stop=None):
         for sec, key, val in rows:
             w.writerow([_tsv_safe(sec), _tsv_safe(key), _tsv_safe(val)])
 
+
+def _raw_instrument_name(raw_parser) -> str:
+    instrument_details = raw_parser.GetInstrumentDetails() or {}
+    instrument_candidates = (
+        instrument_details.get("Instrument Model"),
+        instrument_details.get("Instrument Name"),
+        raw_parser.GetInstrumentName(),
+    )
+    return next(
+        (
+            str(value).strip()
+            for value in instrument_candidates
+            if value and str(value).strip().casefold() not in {"unknown", "n/a", "not available"}
+        ),
+        "",
+    )
+
+
 def run_cli(args):
     stop_event = threading.Event()
     file_usage_monitor = None
@@ -513,13 +539,25 @@ def run_cli(args):
 
     cfg_inputs = _cfg_get(cfg, ["io", "input"], []) or []
     cfg_outdir = _cfg_get(cfg, ["io", "output_dir"], None)
+    cfg_sdrf = _cfg_get(cfg, ["sdrf"], {}) or {}
 
     inputs = list(getattr(args, "input", None) or cfg_inputs)
     outdir = getattr(args, "output_dir", None) or cfg_outdir
+    sdrf_draft = bool(getattr(args, "sdrf_draft", False) or cfg_sdrf.get("draft", False))
+    sdrf_metadata_path = getattr(args, "sdrf_metadata", None) or cfg_sdrf.get("metadata")
+    sdrf_template_out = getattr(args, "sdrf_template_out", None) or cfg_sdrf.get("template_out")
+    sdrf_output_name = cfg_sdrf.get("output") or "metadata.sdrf.tsv"
+    sdrf_draft_output_name = cfg_sdrf.get("draft_output") or "metadata.sdrf.draft.tsv"
 
     if not inputs:
         print("[ERROR] No input files. Set io.input in config.yml or pass --input ...")
         sys.exit(1)
+
+    if sdrf_template_out:
+        out = write_sdrf_cli_template(sdrf_template_out, inputs)
+        print(f"[INFO] Wrote SDRF metadata template: {out}")
+        return
+
     if not outdir:
         print("[ERROR] No output directory. Set io.output_dir in config.yml or pass --output-dir ...")
         sys.exit(1)
@@ -578,6 +616,31 @@ def run_cli(args):
 
     proc_inputs = cmp_inputs if (multi_cmp and cmp_inputs) else inputs
 
+    sdrf_rows = []
+    sdrf_draft_rows = []
+    sdrf_extra_columns = []
+    if sdrf_metadata_path:
+        try:
+            sdrf_user_rows, sdrf_extra_columns = read_sdrf_user_metadata(
+                sdrf_metadata_path,
+                proc_inputs,
+            )
+            errors = validate_sdrf_metadata(
+                sdrf_user_rows,
+                proc_inputs,
+                extra_columns=sdrf_extra_columns,
+            )
+        except Exception as e:
+            print(f"[ERROR] Could not read SDRF metadata TSV: {e}")
+            sys.exit(1)
+        if errors:
+            print("[ERROR] Invalid SDRF metadata TSV:")
+            for error in errors[:20]:
+                print(f"  - {error}")
+            if len(errors) > 20:
+                print(f"  - ...and {len(errors) - 20} more errors")
+            sys.exit(1)
+
     all_ms1_tic, all_ms1_bpi, all_ms1_tnp = [], [], []
     all_ms2_tic, all_ms2_tnp, all_ms2_prec = [], [], []
     ms1_box_tic, ms1_box_bpi, ms1_box_tnp = {}, {}, {}
@@ -598,6 +661,31 @@ def run_cli(args):
         except Exception:
             finish_file_usage("Failed")
             raise
+
+        instrument = _raw_instrument_name(raw_parser)
+        acquisition_date = raw_parser.GetFileCreationDate()
+
+        if sdrf_metadata_path:
+            file_sdrf_rows = enrich_sdrf_rows_for_file(
+                sdrf_user_rows,
+                input_file,
+                instrument,
+                acquisition_date,
+            )
+            if any(not row.get("instrument") for row in file_sdrf_rows):
+                raw_parser.CloseRAWFile()
+                finish_file_usage("Failed")
+                print(
+                    f"[ERROR] No instrument model was found for {input_file}. "
+                    "Add comment[instrument] in the SDRF metadata TSV."
+                )
+                sys.exit(1)
+            sdrf_rows.extend(file_sdrf_rows)
+
+        if sdrf_draft:
+            sdrf_draft_rows.append(
+                draft_sdrf_row_for_file(input_file, instrument, acquisition_date)
+            )
 
         base = os.path.splitext(os.path.basename(input_file))[0]
         sample_out = os.path.join(outdir, base)
@@ -742,6 +830,21 @@ def run_cli(args):
     if stop_event.is_set():
         finish_file_usage("Stopped")
         print("[INFO] Processing stopped.")
+
+    if not stop_event.is_set() and sdrf_metadata_path:
+        out = write_sdrf(
+            Path(outdir) / sdrf_output_name,
+            sdrf_rows,
+            extra_columns=sdrf_extra_columns,
+        )
+        print(f"[INFO] SDRF-Proteomics metadata: {out}")
+
+    if not stop_event.is_set() and sdrf_draft:
+        out = write_sdrf(
+            Path(outdir) / sdrf_draft_output_name,
+            sdrf_draft_rows,
+        )
+        print(f"[INFO] Draft SDRF-Proteomics metadata: {out}")
 
     if not stop_event.is_set() and graphical_representation and len(all_ms1_tic) >= 2:
         out = Path(outdir) / "MS1_compare.html"

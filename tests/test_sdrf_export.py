@@ -4,10 +4,14 @@ from pathlib import Path
 
 from sdrf_export import (
     available_sdrf_columns,
+    draft_sdrf_row_for_file,
     enrich_sdrf_rows_for_file,
     normalize_acquisition_date,
+    normalize_instrument,
+    read_sdrf_user_metadata,
     validate_sdrf_metadata,
     write_sdrf,
+    write_sdrf_cli_template,
 )
 
 
@@ -90,7 +94,10 @@ class SdrfExportTests(unittest.TestCase):
         self.assertEqual(len(lines), 3)
         self.assertIn("factor value[disease]", lines[0])
         self.assertIn("NT=Data-dependent acquisition;AC=PRIDE:0000627", lines[1])
+        self.assertIn("NT=Orbitrap Fusion Lumos;AC=MS:1002732", lines[1])
         self.assertIn("NT=Lys-C;AC=MS:1001309", lines[2])
+        self.assertIn("comment[sdrf annotation tool]", lines[0])
+        self.assertIn("MetaXtract", lines[1])
         self.assertEqual(len(lines[0].split("\t")), len(lines[1].split("\t")))
 
     def test_unknown_raw_instrument_requires_an_override(self):
@@ -107,6 +114,35 @@ class SdrfExportTests(unittest.TestCase):
             normalize_acquisition_date("09/20/2024 11:36:09"),
             "2024-09-20T11:36:09",
         )
+
+    def test_normalizes_common_thermo_instruments_to_cv_terms(self):
+        self.assertEqual(
+            normalize_instrument("Q Exactive HF-X Orbitrap"),
+            "NT=Q Exactive HF-X;AC=MS:1002877",
+        )
+        self.assertEqual(
+            normalize_instrument("Thermo Scientific Orbitrap Exploris 480 Mass Spectrometer"),
+            "NT=Orbitrap Exploris 480;AC=MS:1003028",
+        )
+        self.assertEqual(
+            normalize_instrument("custom prototype"),
+            "custom prototype",
+        )
+
+    def test_builds_draft_sdrf_row_with_only_raw_derived_values(self):
+        row = draft_sdrf_row_for_file(
+            "/data/small.RAW",
+            "LTQ FT",
+            "07/20/2005 14:44:22",
+        )
+
+        self.assertEqual(row["source_name"], "small")
+        self.assertEqual(row["assay_name"], "small")
+        self.assertEqual(row["data_file"], "small.RAW")
+        self.assertEqual(row["instrument"], "NT=LTQ FT;AC=MS:1000448")
+        self.assertEqual(row["acquisition_date"], "2005-07-20T14:44:22")
+        self.assertEqual(row["organism"], "")
+        self.assertEqual(row["acquisition_method"], "")
 
     def test_offers_full_known_column_catalog(self):
         columns = available_sdrf_columns()
@@ -166,6 +202,61 @@ class SdrfExportTests(unittest.TestCase):
         )
         self.assertTrue(any("cannot be empty" in error for error in errors))
         self.assertTrue(any("not a known SDRF column" in error for error in errors))
+
+    def test_writes_and_reads_cli_sdrf_metadata_template(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            template_path = Path(temp_dir) / "sdrf_input.tsv"
+            write_sdrf_cli_template(template_path, self.files)
+            header = template_path.read_text(encoding="utf-8").splitlines()[0]
+            template_path.write_text(
+                "\n".join(
+                    [
+                        header,
+                        "\t".join(
+                            [
+                                "control.raw",
+                                "control",
+                                "control",
+                                "homo sapiens",
+                                "not available",
+                                "1",
+                                "DDA",
+                                "label free sample",
+                                "Trypsin",
+                                "1",
+                                "1",
+                                "",
+                            ]
+                        ),
+                        "\t".join(
+                            [
+                                "treated.raw",
+                                "treated",
+                                "treated",
+                                "homo sapiens",
+                                "not available",
+                                "1",
+                                "DIA",
+                                "label free sample",
+                                "Trypsin",
+                                "1",
+                                "1",
+                                "",
+                            ]
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows, extra_columns = read_sdrf_user_metadata(template_path, self.files)
+
+        self.assertEqual(extra_columns, [])
+        self.assertEqual(rows[0]["file"], self.files[0])
+        self.assertEqual(rows[0]["source_name"], "control")
+        self.assertEqual(rows[1]["acquisition_method"], "DIA")
+        self.assertEqual(validate_sdrf_metadata(rows, self.files), [])
 
 
 if __name__ == "__main__":

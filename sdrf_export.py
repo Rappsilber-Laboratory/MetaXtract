@@ -10,6 +10,7 @@ from sdrf_columns import KNOWN_SDRF_HEADERS
 
 SDRF_VERSION = "v1.1.0"
 SDRF_TEMPLATE = "ms-proteomics v1.1.0"
+SDRF_ANNOTATION_TOOL = "MetaXtract"
 TECHNOLOGY_TYPE = "proteomic profiling by mass spectrometry"
 
 ACQUISITION_METHODS = {
@@ -28,6 +29,65 @@ CLEAVAGE_AGENTS = {
     "lys-c": "NT=Lys-C;AC=MS:1001309",
     "lysc": "NT=Lys-C;AC=MS:1001309",
     "chymotrypsin": "NT=Chymotrypsin;AC=MS:1001306",
+}
+
+INSTRUMENT_MODELS = {
+    "Exactive": "MS:1000649",
+    "Exactive Plus": "MS:1002526",
+    "LTQ FT": "MS:1000448",
+    "LTQ FT Ultra": "MS:1000557",
+    "LTQ Orbitrap": "MS:1000449",
+    "LTQ Orbitrap Classic": "MS:1002835",
+    "LTQ Orbitrap Discovery": "MS:1000555",
+    "LTQ Orbitrap Velos": "MS:1001742",
+    "LTQ Orbitrap Velos/ETD": "MS:1003499",
+    "LTQ Orbitrap XL": "MS:1000556",
+    "LTQ Orbitrap XL ETD": "MS:1000639",
+    "MALDI LTQ Orbitrap": "MS:1000643",
+    "MALDI LTQ Orbitrap Discovery": "MS:1003497",
+    "MALDI LTQ Orbitrap XL": "MS:1003496",
+    "Orbitrap Astral": "MS:1003378",
+    "Orbitrap Astral Zoom": "MS:1003442",
+    "Orbitrap Eclipse": "MS:1003029",
+    "Orbitrap Elite": "MS:1001910",
+    "Orbitrap Exploris 120": "MS:1003095",
+    "Orbitrap Exploris 240": "MS:1003094",
+    "Orbitrap Exploris 480": "MS:1003028",
+    "Orbitrap Exploris GC 240": "MS:1003423",
+    "Orbitrap Exploris GC-MS": "MS:1002992",
+    "Orbitrap Fusion": "MS:1002416",
+    "Orbitrap Fusion ETD": "MS:1002417",
+    "Orbitrap Fusion Lumos": "MS:1002732",
+    "Orbitrap Velos Pro": "MS:1003096",
+    "Q Exactive": "MS:1001911",
+    "Q Exactive Focus": "MS:1002993",
+    "Q Exactive GC Orbitrap": "MS:1003395",
+    "Q Exactive HF": "MS:1002523",
+    "Q Exactive HF-X": "MS:1002877",
+    "Q Exactive Plus": "MS:1002634",
+    "Q Exactive UHMR": "MS:1003245",
+    "TSQ": "MS:1000750",
+    "TSQ 7000": "MS:1000749",
+    "TSQ 8000": "MS:1003503",
+    "TSQ 8000 Evo": "MS:1002525",
+    "TSQ 9000": "MS:1002876",
+    "TSQ Altis": "MS:1002874",
+    "TSQ Altis Plus": "MS:1003292",
+    "TSQ Certis": "MS:1003800",
+    "TSQ Endura": "MS:1002419",
+    "TSQ Quantum": "MS:1000199",
+    "TSQ Quantum Access": "MS:1000644",
+    "TSQ Quantum Access MAX": "MS:1003498",
+    "TSQ Quantum Ultra": "MS:1000751",
+    "TSQ Quantum Ultra AM": "MS:1000743",
+    "TSQ Quantis": "MS:1002875",
+    "TSQ Quantiva": "MS:1002418",
+    "TSQ Vantage": "MS:1001510",
+}
+
+INSTRUMENT_MODELS_BY_KEY = {
+    re.sub(r"[^a-z0-9]+", "", name.casefold()): name
+    for name in INSTRUMENT_MODELS
 }
 
 USER_REQUIRED_FIELDS = (
@@ -63,6 +123,7 @@ AUTOMATIC_SDRF_HEADERS = {
     "technology type",
     "comment[data file]",
     "comment[acquisition date]",
+    "comment[sdrf annotation tool]",
     "comment[sdrf version]",
     "comment[sdrf template]",
 }
@@ -95,6 +156,31 @@ def normalize_acquisition_method(value: str) -> str:
 def normalize_cleavage_agent(value: str) -> str:
     cleaned = _text(value)
     return CLEAVAGE_AGENTS.get(cleaned.casefold(), cleaned)
+
+
+def _instrument_key(value: str) -> str:
+    cleaned = _text(value).casefold()
+    cleaned = re.sub(r"\bthermo(?: fisher)? scientific\b", " ", cleaned)
+    cleaned = re.sub(r"\bmass spectrometer\b|\bspectrometer\b", " ", cleaned)
+    cleaned = re.sub(r"\bms\b", " ", cleaned)
+    cleaned = re.sub(r"\borbitrap$", " ", cleaned)
+    return re.sub(r"[^a-z0-9]+", "", cleaned)
+
+
+def normalize_instrument(value: str) -> str:
+    cleaned = _known_text(value)
+    if not cleaned or cleaned.startswith("NT="):
+        return cleaned
+
+    key = _instrument_key(cleaned)
+    exact_name = INSTRUMENT_MODELS_BY_KEY.get(key)
+    if exact_name:
+        return f"NT={exact_name};AC={INSTRUMENT_MODELS[exact_name]}"
+
+    for name in sorted(INSTRUMENT_MODELS, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(name.casefold())}\b", cleaned.casefold()):
+            return f"NT={name};AC={INSTRUMENT_MODELS[name]}"
+    return cleaned
 
 
 def normalize_acquisition_date(value) -> str:
@@ -146,6 +232,126 @@ def _normalized_extra_columns(extra_columns) -> list[str]:
 
 def _valid_factor_header(header: str) -> bool:
     return bool(re.fullmatch(r"factor value\[[^\[\]\t\r\n]+\]", header))
+
+
+def _user_field_for_header(header: str) -> str | None:
+    normalized = _text(header).casefold()
+    if normalized in {"file", "raw file", "raw_file", "comment[data file]"}:
+        return "file"
+    if normalized == "source name":
+        return "source_name"
+    if normalized == "assay name":
+        return "assay_name"
+    if normalized == "characteristics[organism]":
+        return "organism"
+    if normalized == "characteristics[organism part]":
+        return "organism_part"
+    if normalized == "characteristics[biological replicate]":
+        return "biological_replicate"
+    if normalized == "comment[proteomics data acquisition method]":
+        return "acquisition_method"
+    if normalized == "comment[label]":
+        return "label"
+    if normalized == "comment[cleavage agent details]":
+        return "cleavage_agent"
+    if normalized == "comment[fraction identifier]":
+        return "fraction_identifier"
+    if normalized == "comment[technical replicate]":
+        return "technical_replicate"
+    if normalized == "comment[instrument]":
+        return "instrument_override"
+    return None
+
+
+def _selected_file_lookup(selected_files: list[str]) -> dict[str, str]:
+    lookup = {}
+    for file_path in selected_files:
+        file_text = str(file_path)
+        lookup[file_text] = file_text
+        lookup[Path(file_text).name] = file_text
+    return lookup
+
+
+def read_sdrf_user_metadata(
+    metadata_path: str | Path,
+    selected_files: list[str],
+) -> tuple[list[dict], list[str]]:
+    """Read user-supplied SDRF fields for CLI runs."""
+    selected_lookup = _selected_file_lookup(selected_files)
+    metadata_path = Path(metadata_path)
+    with metadata_path.open("r", newline="", encoding="utf-8-sig") as metadata_file:
+        reader = csv.DictReader(metadata_file, delimiter="\t")
+        if not reader.fieldnames:
+            raise ValueError(f"{metadata_path} does not contain a TSV header.")
+
+        extra_columns = []
+        internal_fields = {}
+        for header in reader.fieldnames:
+            cleaned_header = _text(header)
+            field = _user_field_for_header(cleaned_header)
+            if field is not None:
+                internal_fields[cleaned_header] = field
+            elif cleaned_header in AUTOMATIC_SDRF_HEADERS:
+                continue
+            else:
+                canonical = _normalized_extra_columns([cleaned_header])
+                extra_columns.append(canonical[0] if canonical else cleaned_header)
+
+        rows = []
+        for source_row in reader:
+            row = {}
+            for header, value in source_row.items():
+                cleaned_header = _text(header)
+                field = internal_fields.get(cleaned_header)
+                cleaned_value = _text(value)
+                if field == "file":
+                    row[field] = selected_lookup.get(cleaned_value, cleaned_value)
+                elif field:
+                    row[field] = cleaned_value
+                elif cleaned_header in AUTOMATIC_SDRF_HEADERS:
+                    continue
+                else:
+                    canonical = _normalized_extra_columns([cleaned_header])
+                    row[canonical[0] if canonical else cleaned_header] = cleaned_value
+            rows.append(row)
+
+    return rows, _normalized_extra_columns(extra_columns)
+
+
+def write_sdrf_cli_template(
+    output_path: str | Path,
+    selected_files: list[str],
+) -> Path:
+    """Write a fillable TSV containing the SDRF fields CLI users must provide."""
+    headers = [
+        "RAW file",
+        *[label for _, label in USER_REQUIRED_FIELDS],
+        "comment[instrument]",
+    ]
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", newline="", encoding="utf-8") as output_file:
+        writer = csv.writer(output_file, delimiter="\t", lineterminator="\n")
+        writer.writerow(headers)
+        for file_path in selected_files:
+            base = Path(file_path).stem
+            writer.writerow(
+                [
+                    str(file_path),
+                    base,
+                    base,
+                    "",
+                    "not available",
+                    "1",
+                    "",
+                    "",
+                    "",
+                    "1",
+                    "1",
+                    "",
+                ]
+            )
+    return output_path
 
 
 def validate_sdrf_metadata(
@@ -255,12 +461,38 @@ def enrich_sdrf_rows_for_file(
         row = dict(user_row)
         row["file"] = str(file_path)
         row["data_file"] = Path(file_path).name
-        row["instrument"] = _known_text(row.get("instrument_override")) or _known_text(instrument)
+        row["instrument"] = normalize_instrument(
+            _known_text(row.get("instrument_override")) or _known_text(instrument)
+        )
         row["acquisition_date"] = normalize_acquisition_date(acquisition_date)
         row["acquisition_method"] = normalize_acquisition_method(row.get("acquisition_method", ""))
         row["cleavage_agent"] = normalize_cleavage_agent(row.get("cleavage_agent", ""))
         enriched.append(row)
     return enriched
+
+
+def draft_sdrf_row_for_file(
+    file_path: str,
+    instrument: str,
+    acquisition_date,
+) -> dict:
+    base = Path(file_path).stem
+    return {
+        "file": str(file_path),
+        "source_name": base,
+        "assay_name": base,
+        "organism": "",
+        "organism_part": "",
+        "biological_replicate": "",
+        "acquisition_method": "",
+        "label": "",
+        "instrument": normalize_instrument(instrument),
+        "cleavage_agent": "",
+        "fraction_identifier": "",
+        "technical_replicate": "",
+        "data_file": Path(file_path).name,
+        "acquisition_date": normalize_acquisition_date(acquisition_date),
+    }
 
 
 def write_sdrf(
@@ -301,6 +533,7 @@ def write_sdrf(
         "comment[technical replicate]",
         "comment[data file]",
         "comment[acquisition date]",
+        "comment[sdrf annotation tool]",
         "comment[sdrf version]",
         "comment[sdrf template]",
         *other_headers,
@@ -324,6 +557,7 @@ def write_sdrf(
             "comment[technical replicate]": row.get("technical_replicate"),
             "comment[data file]": row.get("data_file"),
             "comment[acquisition date]": row.get("acquisition_date") or "not available",
+            "comment[sdrf annotation tool]": SDRF_ANNOTATION_TOOL,
             "comment[sdrf version]": SDRF_VERSION,
             "comment[sdrf template]": SDRF_TEMPLATE,
         }

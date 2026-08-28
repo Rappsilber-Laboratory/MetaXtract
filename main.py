@@ -20,7 +20,10 @@ def _is_cli(args: argparse.Namespace) -> bool:
             bool(getattr(args, "complete_ms1", False)),
             bool(getattr(args, "complete_ms2", False)),
             bool(getattr(args, "ms2_peaklist_export", False)),
-            bool(getattr(args, "ms1_peaklist_export", False))
+            bool(getattr(args, "ms1_peaklist_export", False)),
+            bool(getattr(args, "sdrf_draft", False)),
+            bool(getattr(args, "sdrf_metadata", None)),
+            bool(getattr(args, "sdrf_template_out", None)),
         ]
     )
 
@@ -56,6 +59,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--ms1-peaklist-export", dest="ms1_peaklist_export", action="store_true", help="Export MS1 peak list as Parquet",)
     p.add_argument("--ms2-technical-details-export", dest="ms2_technical_details_export", action="store_true", help="Export MS2 technical details CSV")
     p.add_argument("--ms1-technical-details-export", dest="ms1_technical_details_export", action="store_true", help="Export MS1 technical details CSV")
+    p.add_argument(
+        "--sdrf-draft",
+        dest="sdrf_draft",
+        action="store_true",
+        help="Write a draft SDRF TSV during the CLI run with only RAW-derived fields filled",
+    )
+    p.add_argument(
+        "--sdrf-metadata",
+        dest="sdrf_metadata",
+        help="Path to a user-filled SDRF metadata TSV for CLI export",
+    )
+    p.add_argument(
+        "--sdrf-template-out",
+        dest="sdrf_template_out",
+        help="Write a fillable SDRF metadata TSV template for the selected inputs and exit",
+    )
 
     return p
 

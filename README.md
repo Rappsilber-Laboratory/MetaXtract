@@ -322,6 +322,16 @@ visualisation:
   enabled: true
   format: html
 
+sdrf:
+  # Optional CLI/HPC SDRF support.
+  # draft: true writes metadata.sdrf.draft.tsv during the normal run, with
+  # only RAW-derived fields filled. Users can complete it after processing.
+  draft: false
+  draft_output: metadata.sdrf.draft.tsv
+  # metadata can point to a completed user-filled SDRF metadata TSV.
+  metadata: null
+  output: metadata.sdrf.tsv
+
 multi_comparison:
   enabled: true
   # Select any 2 or more inputs using their 1-based positions in io.input.
@@ -396,11 +406,63 @@ Interactive Plotly HTML reports, MS1 and MS2 trends, and cross-sample overlays a
 For every processed RAW file, both the GUI log and CLI output report memory at the start and a final summary containing runtime, ending memory, sampled peak memory, and memory change. Each run also writes `runtime_summary_YYYYMMDD_HHMMSS.tsv` in the root output directory. The TSV contains one row per processed RAW file with status, runtime in seconds, start/end/peak memory in GB, and memory change in GB. Memory is the resident set size (RSS) of the MetaXtract process, so it includes Python, native libraries, and Thermo/.NET allocations used while that file is processed.
 
 #### SDRF-Proteomics export
-Enable **Export SDRF-Proteomics metadata (.sdrf.tsv)** in the GUI to open the metadata editor before processing. MetaXtract fills the RAW filename, instrument model, acquisition date, technology type, SDRF version, and template. Initially, the grid shows only required MS-proteomics inputs that cannot be determined reliably from a RAW file.
+Enable **Export SDRF-Proteomics metadata (.sdrf.tsv)** in the GUI to open the metadata editor before processing. MetaXtract fills the RAW filename, instrument model, acquisition date, technology type, SDRF annotation tool, SDRF version, and template. Common Thermo instrument models are written as PSI-MS controlled-vocabulary values, for example `NT=Orbitrap Fusion Lumos;AC=MS:1002732`. If the instrument cannot be mapped automatically, fill `comment[instrument]` manually with the preferred `NT=...;AC=...` value. Initially, the grid shows only required MS-proteomics inputs that cannot be determined reliably from a RAW file.
 
 Use **Add column** to search and multi-select from the complete known column-name catalog in the official SDRF templates registry. This includes sample, clinical, organism, DIA, single-cell, crosslinking, immunopeptidomics, metaproteomics, environmental, affinity-proteomics, and metabolomics fields. A custom `factor value[...]` column can also be added from the same picker. Added columns must be filled for every row and can be removed again with **Remove optional column**.
 
 The editor starts with one sample-to-file row per selected RAW file. Additional rows can be added for multiplexed experiments where multiple samples or labels share a RAW file. The dataset-level file is written as `metadata.sdrf.tsv` in the root output directory using the `ms-proteomics v1.1.0` template.
+
+CLI users can generate an SDRF draft during the normal extraction run:
+
+```bash
+python main.py \
+  --input path/to/sample_1.RAW path/to/sample_2.RAW \
+  --output-dir output/cli_run \
+  --file-based-details \
+  --sdrf-draft
+```
+
+This writes `output/cli_run/metadata.sdrf.draft.tsv`. MetaXtract fills only the fields that can be read or derived safely from the RAW file, including the RAW filename, acquisition date, technology type, recognized instrument model, SDRF annotation tool, SDRF version, and SDRF template. Biological and experimental design fields that cannot be inferred from RAW files are left for the user to complete manually.
+
+For the bundled small example, the draft command is:
+
+```bash
+python main.py \
+  --input data/small.RAW \
+  --output-dir output/cli_small \
+  --file-based-details \
+  --sdrf-draft
+```
+
+The same draft mode can be enabled from YAML:
+
+```yaml
+sdrf:
+  draft: true
+  draft_output: metadata.sdrf.draft.tsv
+```
+
+Users who already have a completed metadata TSV can ask MetaXtract to validate/enrich it and write a final SDRF file:
+
+```bash
+python main.py \
+  --input data/small.RAW \
+  --output-dir output/cli_small \
+  --file-based-details \
+  --sdrf-metadata sdrf_input.tsv
+```
+
+The completed metadata file can also be passed from YAML:
+
+```yaml
+sdrf:
+  metadata: sdrf_input.tsv
+  output: metadata.sdrf.tsv
+```
+
+If a user wants a blank starter TSV without processing RAW files, they can still create one with `--sdrf-template-out`; this command only writes the TSV template and exits.
+
+Optional SDRF fields such as `comment[precursor mass tolerance]` and `comment[fragment mass tolerance]` can be added in the GUI, or as extra columns in the CLI metadata TSV. These fields describe the mass-error tolerance intended for downstream identification/search workflows: precursor tolerance applies to intact precursor ions, while fragment tolerance applies to MS/MS fragment ions.
 
 ---
 ## Using MetaXtract as a Python Library
