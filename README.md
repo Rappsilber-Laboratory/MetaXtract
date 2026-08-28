@@ -68,8 +68,18 @@ python main.py --config /path/to/config.yml
 ### Running with Docker or Apptainer/Singularity
 
 MetaXtract can also be run as a CLI-only Linux container. This is the recommended
-mode for using macOS and for HPC infrastructure where a graphical
-desktop is not available.
+mode for macOS and HPC infrastructure where a graphical desktop is not available.
+
+On macOS, `brew install docker` installs mostly the Docker CLI, not the Docker
+daemon/engine. Mac computers run Linux containers through Docker Desktop or
+another VM-based backend because macOS cannot run Linux containers directly.
+Install Docker Desktop, open it, and wait until it finishes starting:
+
+```bash
+brew install --cask docker
+open -a Docker
+docker info
+```
 
 Build the Docker image:
 
@@ -181,7 +191,19 @@ default platform does not work:
 
 ```bash
 docker build --platform linux/amd64 -t metaxtract:latest .
-docker run --platform linux/amd64 --rm -v /path/to/raw_files:/data:ro -v /path/to/output:/out metaxtract:latest --input /data/sample.raw --output-dir /out --file-based-details
+mkdir -p output/docker_small
+docker run --platform linux/amd64 --rm \
+  -v "$(pwd)/data:/data:ro" \
+  -v "$(pwd)/output/docker_small:/out" \
+  metaxtract:latest \
+  --input /data/small.RAW \
+  --output-dir /out \
+  --file-based-details \
+  --complete-ms1 \
+  --complete-ms2 \
+  --ms1-peaklist-export \
+  --ms2-peaklist-export \
+  --graphical-representation
 ```
 
 For HPC systems, build an Apptainer/Singularity image from Docker or from the

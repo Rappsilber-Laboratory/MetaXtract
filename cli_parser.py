@@ -72,6 +72,69 @@ COLUMN_SOURCE_ALIASES = {
     "thermo_Multiple Injection": ("Multiple Injection",),
 }
 
+DEFAULT_MS1_COLUMNS = [
+    "Ion Injection Time (ms)",
+    "Total Number of Peaks",
+    "Total Ion Current",
+    "Scan Start Time (min)",
+    "Base Peak Intensity",
+    "Base Peak m/z",
+    "Scan Mode",
+    "thermo_Multi Inject Info",
+    "thermo_Multiple Injection",
+]
+
+DEFAULT_MS2_COLUMNS = [
+    "Total Ion Current",
+    "Total Number of Peaks",
+    "thermo_Number of Channels",
+    "Sampling Frequency",
+    "Collision Energy",
+    "Scan Start Time (min)",
+    "Scan Window m/z Range",
+    "Selected Ion Intensity",
+    "Filter String",
+    "Scan Mode",
+    "thermo_AGC",
+    "thermo_Micro Scan Count",
+    "Ion Injection Time (ms)",
+    "thermo_Elapsed Scan Time (sec)",
+    "Dissociation Method",
+    "Mass Analyzer Type",
+    "Detector Type",
+    "Base Peak m/z",
+    "thermo_Average Scan by Inst",
+    "thermo_Orbitrap Resolution",
+    "thermo_API Process Delay",
+    "thermo_Dependency Type",
+    "thermo_Multi Inject Info",
+    "Base Peak Intensity",
+    "thermo_Master Scan Number",
+    "Experimental Precursor Monoisotopic m/z",
+    "Charge State",
+    "Normalized Collision Energy (%)",
+    "Collision Energy (eV)",
+    "Isolation Window Width (m/z)",
+    "thermo_Access ID",
+    "thermo_Conversion Parameter I",
+    "thermo_Conversion Parameter A",
+    "thermo_Conversion Parameter B",
+    "thermo_Conversion Parameter C",
+    "thermo_Conversion Parameter D",
+    "thermo_Conversion Parameter E",
+    "thermo_Temperature Comp. (ppm)",
+    "thermo_RF Comp. (ppm)",
+    "thermo_Space Charge Comp. (ppm)",
+    "thermo_Resolution Comp. (ppm)",
+    "thermo_Number of LM Found",
+    "thermo_LM Correction (ppm)",
+    "thermo_RawOvFtT",
+    "thermo_Injection t0",
+    "thermo_Reagent Ion Injection Time (ms)",
+    "thermo_FAIMS Voltage On",
+    "FAIMS Compensation Voltage",
+]
+
 
 def trailer_value(trailer_data, output_label: str):
     if not trailer_data:
@@ -476,9 +539,15 @@ def run_cli(args):
     ms2_block = _cfg_get(cfg, ["scan_header", "MS2"], {}) or {}
 
     if getattr(args, "complete_ms1", False):
-        ms1_block = {"select_all": True, "columns": (ms1_block.get("columns", {}) or {})}
+        columns = ms1_block.get("columns", {}) if isinstance(ms1_block, dict) else {}
+        if not columns:
+            columns = {column: True for column in DEFAULT_MS1_COLUMNS}
+        ms1_block = {"select_all": True, "columns": columns}
     if getattr(args, "complete_ms2", False):
-        ms2_block = {"select_all": True, "columns": (ms2_block.get("columns", {}) or {})}
+        columns = ms2_block.get("columns", {}) if isinstance(ms2_block, dict) else {}
+        if not columns:
+            columns = {column: True for column in DEFAULT_MS2_COLUMNS}
+        ms2_block = {"select_all": True, "columns": columns}
 
     selected_ms1_options = _selected_columns(ms1_block)
     selected_ms2_options = _selected_columns(ms2_block)
