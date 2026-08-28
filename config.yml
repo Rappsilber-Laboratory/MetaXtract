@@ -20,7 +20,7 @@ visualisation:
 
 multi_comparison:
   enabled: true
-  samples: [1, 2]       # 1-based indices into io.input (file1 + file3)
+  samples: [1, 2, 3]    # Select 2 or more samples using 1-based indices into io.input
 
 scan_header:
   MS1:

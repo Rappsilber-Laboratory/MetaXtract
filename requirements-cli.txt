@@ -1,0 +1,9 @@
+numpy
+pandas
+pyarrow
+pyyaml
+tqdm
+plotly
+anndata
+h5py
+pythonnet

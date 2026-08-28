@@ -14,11 +14,15 @@ from PySide6.QtCore import QObject, Signal, Slot, QThread, Qt, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -29,6 +33,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
     QTextEdit,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
     QListWidget,
@@ -45,6 +51,14 @@ from plotly_visualizer import (
 )
 
 from anndata_export import export_ms2_to_h5ad
+from runtime_metrics import FileUsageMonitor, format_bytes, format_file_usage
+from sdrf_columns import column_group
+from sdrf_export import (
+    available_sdrf_columns,
+    enrich_sdrf_rows_for_file,
+    validate_sdrf_metadata,
+    write_sdrf,
+)
 
 class MS1Visualizer:
     def __init__(self, single_file_name: str, output_dir: str):
@@ -260,6 +274,7 @@ class _ExtractionWorker(QObject):
         export_fmt: str | None,
         multi_cmp: bool,
         cmp_files: list[str] | None,
+        sdrf_payload: dict | None = None,
         hdf5_export: bool = False,
         ms2_peaklist_export: bool = False,
         ms1_peaklist_export: bool = False,
@@ -282,8 +297,11 @@ class _ExtractionWorker(QObject):
         self.ms2_technical_details_export = bool(ms2_technical_details_export)
         self.ms1_technical_details_export = bool(ms1_technical_details_export)
         self.cmp_files = (cmp_files or [])
+        self.sdrf_payload = sdrf_payload or {}
         self._stop_event = threading.Event()
         self._current_raw_parser = None
+        self._file_usage_monitor: FileUsageMonitor | None = None
+        self._file_usage_path: str | None = None
 
     @Slot()
     def stop(self):
@@ -297,6 +315,24 @@ class _ExtractionWorker(QObject):
         self._current_raw_parser = None
         if raw_parser is not None:
             safe_call(lambda: raw_parser.CloseRAWFile(), None)
+
+    def _start_file_usage(self, selected_file: str) -> None:
+        self._file_usage_path = selected_file
+        self._file_usage_monitor = FileUsageMonitor().start()
+        self.log.emit(
+            f"[METRICS] Started: {selected_file} | "
+            f"Memory RSS: {format_bytes(self._file_usage_monitor.start_rss_bytes)}"
+        )
+
+    def _finish_file_usage(self, status: str) -> None:
+        monitor = self._file_usage_monitor
+        selected_file = self._file_usage_path
+        self._file_usage_monitor = None
+        self._file_usage_path = None
+        if monitor is None or selected_file is None:
+            return
+        usage = monitor.stop()
+        self.log.emit(f"[METRICS] {status}: {selected_file} | {format_file_usage(usage)}")
 
     def _remove_empty_lines(self, input_file: str) -> None:
         try:
@@ -641,6 +677,7 @@ class _ExtractionWorker(QObject):
             
             ms1_box_tic, ms1_box_bpi, ms1_box_tnp = {}, {}, {}
             ms2_box_tic, ms2_box_bpi, ms2_box_tnp = {}, {}, {}
+            sdrf_rows = []
 
             global_out = Path(self.output_dir_raw)
             global_out.mkdir(parents=True, exist_ok=True)
@@ -653,12 +690,44 @@ class _ExtractionWorker(QObject):
                     break
 
                 self.log.emit(f"[INFO] Processing: {selected_file}")
+                self._start_file_usage(selected_file)
 
                 raw_parser = MetaXtract(selected_file)
                 self._current_raw_parser = raw_parser
                 base = os.path.splitext(os.path.basename(selected_file))[0]
                 out_dir = Path(self.output_dir_raw) / base
                 out_dir.mkdir(parents=True, exist_ok=True)
+
+                if self.sdrf_payload:
+                    instrument_details = safe_call(lambda: raw_parser.GetInstrumentDetails(), {}) or {}
+                    instrument_candidates = (
+                        instrument_details.get("Instrument Model"),
+                        instrument_details.get("Instrument Name"),
+                        safe_call(lambda: raw_parser.GetInstrumentName(), ""),
+                    )
+                    instrument = next(
+                        (
+                            str(value).strip()
+                            for value in instrument_candidates
+                            if value
+                            and str(value).strip().casefold()
+                            not in {"unknown", "n/a", "not available"}
+                        ),
+                        "",
+                    )
+                    acquisition_date = safe_call(lambda: raw_parser.GetFileCreationDate(), "")
+                    file_rows = enrich_sdrf_rows_for_file(
+                        self.sdrf_payload.get("rows", []),
+                        selected_file,
+                        instrument,
+                        acquisition_date,
+                    )
+                    if any(not row.get("instrument") for row in file_rows):
+                        raise ValueError(
+                            f"No instrument model was found for {selected_file}. "
+                            "Provide an instrument override in the SDRF editor."
+                        )
+                    sdrf_rows.extend(file_rows)
 
                 plotly_ms1 = PlotlyMS1Visualizer(base, str(out_dir)) if self.plotly_enabled else None
                 plotly_ms2 = PlotlyMS2Visualizer(base, str(out_dir)) if self.plotly_enabled else None
@@ -810,10 +879,13 @@ class _ExtractionWorker(QObject):
                 safe_call(lambda: raw_parser.CloseRAWFile(), None)
                 self._current_raw_parser = None
                 self.progress.emit(100)
-                self.log.emit(f"[INFO] Finished: {selected_file}\n")
+                self.log.emit(f"[INFO] Finished: {selected_file}")
+                self._finish_file_usage("Finished")
+                self.log.emit("")
 
             if self.should_stop():
                 self._close_current_raw_file()
+                self._finish_file_usage("Stopped")
                 self.log.emit("[INFO] Processing stopped.")
 
             if not self.should_stop() and self.plotly_enabled and len(all_ms1_tic) >= 2:
@@ -852,13 +924,24 @@ class _ExtractionWorker(QObject):
                     ],
                 )
                 self.log.emit(f"[VIS] MS2 comparison: {out}")
+
+            if not self.should_stop() and self.sdrf_payload:
+                out = write_sdrf(
+                    global_out / "metadata.sdrf.tsv",
+                    sdrf_rows,
+                    factor_name=self.sdrf_payload.get("factor_name", ""),
+                    extra_columns=self.sdrf_payload.get("extra_columns", []),
+                )
+                self.log.emit(f"[INFO] SDRF-Proteomics metadata: {out}")
             self.finished.emit()
         except InterruptedError:
             self._close_current_raw_file()
+            self._finish_file_usage("Stopped")
             self.log.emit("[INFO] Processing stopped.")
             self.finished.emit()
         except Exception as e:
             self._close_current_raw_file()
+            self._finish_file_usage("Failed")
             #self.failed.emit(str(e))
             tb = traceback.format_exc()
             try:
@@ -867,16 +950,16 @@ class _ExtractionWorker(QObject):
                 pass
             self.failed.emit(f"{e}\n\n{tb}")
 
-class TwoFilePickerDialog(QDialog):
+class ComparisonSamplePickerDialog(QDialog):
     def __init__(self, files: list[str], parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Select 2 files to compare")
+        self.setWindowTitle("Select samples to compare")
         self.setMinimumSize(760, 420)
         self._files = files
         self.selected: list[str] = []
 
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("Pick exactly 2 files:", self))
+        lay.addWidget(QLabel("Select at least 2 samples for the comparison:", self))
 
         self.listw = QListWidget(self)
         self.listw.setSelectionMode(QListWidget.MultiSelection)
@@ -886,22 +969,471 @@ class TwoFilePickerDialog(QDialog):
         lay.addWidget(self.listw, 1)
 
         btns = QHBoxLayout()
+        btn_all = QPushButton("Select all", self)
+        btn_clear = QPushButton("Clear", self)
         btn_cancel = QPushButton("Cancel", self)
         btn_ok = QPushButton("OK", self)
+        btns.addWidget(btn_all)
+        btns.addWidget(btn_clear)
         btns.addStretch(1)
         btns.addWidget(btn_cancel)
         btns.addWidget(btn_ok)
         lay.addLayout(btns)
 
+        btn_all.clicked.connect(self.listw.selectAll)
+        btn_clear.clicked.connect(self.listw.clearSelection)
         btn_cancel.clicked.connect(self.reject)
         btn_ok.clicked.connect(self._accept_checked)
 
     def _accept_checked(self):
         picked = [it.text() for it in self.listw.selectedItems()]
-        if len(picked) != 2:
-            QMessageBox.critical(self, "Error", "Select exactly 2 files.")
+        if len(picked) < 2:
+            QMessageBox.critical(self, "Error", "Select at least 2 samples.")
             return
         self.selected = picked
+        self.accept()
+
+
+class SdrfColumnPickerDialog(QDialog):
+    CUSTOM_FACTOR = "factor value[custom factor]"
+
+    def __init__(self, headers: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add SDRF columns")
+        self.setMinimumSize(760, 580)
+        self.selected_headers: list[str] = []
+
+        layout = QVBoxLayout(self)
+        help_text = QLabel(
+            "Search the official SDRF registry, select one or more known column names, "
+            "then click Add selected columns.",
+            self,
+        )
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+
+        self.search = QLineEdit(self)
+        self.search.setPlaceholderText("Search, e.g. disease, treatment, collision energy...")
+        layout.addWidget(self.search)
+
+        self.listw = QListWidget(self)
+        self.listw.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        factor_item = QListWidgetItem(
+            f"{self.CUSTOM_FACTOR}    —    Experimental factors"
+        )
+        factor_item.setData(Qt.UserRole, self.CUSTOM_FACTOR)
+        factor_item.setToolTip("Adds factor value[your factor name] after asking for its name.")
+        self.listw.addItem(factor_item)
+        for header in headers:
+            group = column_group(header)
+            item = QListWidgetItem(f"{header}    —    {group}")
+            item.setData(Qt.UserRole, header)
+            item.setToolTip(f"Official SDRF column: {header}")
+            self.listw.addItem(item)
+        layout.addWidget(self.listw, 1)
+
+        self.count_label = QLabel(self)
+        layout.addWidget(self.count_label)
+
+        buttons = QHBoxLayout()
+        btn_cancel = QPushButton("Cancel", self)
+        btn_add = QPushButton("Add selected columns", self)
+        buttons.addStretch(1)
+        buttons.addWidget(btn_cancel)
+        buttons.addWidget(btn_add)
+        layout.addLayout(buttons)
+
+        self.search.textChanged.connect(self._filter_items)
+        btn_cancel.clicked.connect(self.reject)
+        btn_add.clicked.connect(self._accept_selected)
+        self._filter_items("")
+
+    def _filter_items(self, query: str) -> None:
+        words = query.casefold().split()
+        visible = 0
+        for index in range(self.listw.count()):
+            item = self.listw.item(index)
+            matches = all(word in item.text().casefold() for word in words)
+            item.setHidden(not matches)
+            if matches:
+                visible += 1
+        self.count_label.setText(f"{visible} columns shown")
+
+    def _accept_selected(self) -> None:
+        self.selected_headers = [
+            item.data(Qt.UserRole) for item in self.listw.selectedItems()
+        ]
+        if not self.selected_headers:
+            QMessageBox.information(self, "SDRF columns", "Select at least one column.")
+            return
+        self.accept()
+
+
+class SdrfMetadataDialog(QDialog):
+    REQUIRED_COLUMNS = [
+        ("RAW file", "file", "comment[data file]", False),
+        ("source name", "source_name", "source name", False),
+        ("assay name", "assay_name", "assay name", False),
+        ("characteristics[organism]", "organism", "characteristics[organism]", False),
+        ("characteristics[organism part]", "organism_part", "characteristics[organism part]", False),
+        ("characteristics[biological replicate]", "biological_replicate", "characteristics[biological replicate]", False),
+        ("comment[proteomics data acquisition method]", "acquisition_method", "comment[proteomics data acquisition method]", False),
+        ("comment[label]", "label", "comment[label]", False),
+        ("comment[cleavage agent details]", "cleavage_agent", "comment[cleavage agent details]", False),
+        ("comment[fraction identifier]", "fraction_identifier", "comment[fraction identifier]", False),
+        ("comment[technical replicate]", "technical_replicate", "comment[technical replicate]", False),
+        ("comment[instrument] (auto / override)", "instrument_override", "comment[instrument]", False),
+    ]
+
+    def __init__(self, files: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("SDRF-Proteomics metadata")
+        self.setMinimumSize(1050, 620)
+        self.files = list(files)
+        self.payload: dict = {}
+        self.columns = list(self.REQUIRED_COLUMNS)
+        self.setStyleSheet(
+            """
+            QDialog {
+                background: #0f1115;
+                color: #e9eef5;
+            }
+            QLabel {
+                color: #e9eef5;
+                font-size: 12px;
+            }
+            QLineEdit, QComboBox {
+                background: #161a22;
+                color: #e9eef5;
+                border: 1px solid #364158;
+                border-radius: 7px;
+                padding: 6px 8px;
+                selection-background-color: #7a001a;
+                selection-color: #ffffff;
+            }
+            QLineEdit:focus, QComboBox:focus {
+                border: 1px solid #c21f45;
+            }
+            QLineEdit::placeholder {
+                color: #8fa0b6;
+            }
+            QComboBox::drop-down {
+                background: #202737;
+                border: none;
+                border-left: 1px solid #364158;
+                border-top-right-radius: 7px;
+                border-bottom-right-radius: 7px;
+                width: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background: #161a22;
+                color: #e9eef5;
+                border: 1px solid #364158;
+                selection-background-color: #7a001a;
+                selection-color: #ffffff;
+                outline: none;
+            }
+            QTableWidget, QListWidget {
+                background: #121620;
+                alternate-background-color: #171c27;
+                color: #e9eef5;
+                gridline-color: #30394c;
+                border: 1px solid #364158;
+                border-radius: 9px;
+                selection-background-color: #7a001a;
+                selection-color: #ffffff;
+                outline: none;
+            }
+            QTableWidget::item, QListWidget::item {
+                color: #e9eef5;
+                padding: 6px;
+                border: none;
+            }
+            QTableWidget::item:selected, QListWidget::item:selected {
+                background: #7a001a;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background: #202737;
+                color: #ffffff;
+                border: none;
+                border-right: 1px solid #364158;
+                border-bottom: 1px solid #48556f;
+                padding: 8px 6px;
+                font-weight: 700;
+            }
+            QTableCornerButton::section {
+                background: #202737;
+                border: none;
+                border-right: 1px solid #364158;
+                border-bottom: 1px solid #48556f;
+            }
+            QPushButton {
+                background: #7a001a;
+                color: #ffffff;
+                border: 1px solid #a00023;
+                border-radius: 10px;
+                padding: 8px 13px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background: #920020;
+                border-color: #c21f45;
+            }
+            QPushButton:pressed {
+                background: #600014;
+            }
+            QScrollBar:vertical, QScrollBar:horizontal {
+                background: #0b0d12;
+                border: none;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+                background: #48556f;
+                border-radius: 5px;
+                min-height: 24px;
+                min-width: 24px;
+            }
+            QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+                background: #65738e;
+            }
+            QScrollBar::add-line, QScrollBar::sub-line,
+            QScrollBar::add-page, QScrollBar::sub-page {
+                background: transparent;
+                border: none;
+            }
+            QToolTip {
+                background: #202737;
+                color: #ffffff;
+                border: 1px solid #48556f;
+                padding: 5px;
+            }
+            """
+        )
+
+        layout = QVBoxLayout(self)
+        instructions = QLabel(
+            "Only required MS-proteomics fields are shown initially. Complete them, then use "
+            "Add column for any optional, recommended, or specialized SDRF field. "
+            "MetaXtract fills the data filename, instrument, acquisition date, SDRF version, and template. "
+            "Use DDA/DIA/PRM/SRM and Trypsin/Lys-C shorthand if desired.",
+            self,
+        )
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        self.table = QTableWidget(0, len(self.columns), self)
+        self.table.setHorizontalHeaderLabels([column[0] for column in self.columns])
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(36)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setStretchLastSection(True)
+        self.table.setColumnWidth(0, 280)
+        self.table.setColumnWidth(1, 140)
+        self.table.setColumnWidth(2, 140)
+        for file_path in self.files:
+            self._append_row(self._defaults_for_file(file_path))
+        layout.addWidget(self.table, 1)
+
+        edit_buttons = QHBoxLayout()
+        btn_add = QPushButton("Add sample row", self)
+        btn_remove = QPushButton("Remove selected rows", self)
+        btn_copy = QPushButton("Copy selected metadata to all rows", self)
+        btn_add_column = QPushButton("Add column", self)
+        btn_remove_column = QPushButton("Remove optional column", self)
+        edit_buttons.addWidget(btn_add)
+        edit_buttons.addWidget(btn_remove)
+        edit_buttons.addWidget(btn_copy)
+        edit_buttons.addWidget(btn_add_column)
+        edit_buttons.addWidget(btn_remove_column)
+        edit_buttons.addStretch(1)
+        layout.addLayout(edit_buttons)
+
+        dialog_buttons = QHBoxLayout()
+        btn_cancel = QPushButton("Cancel", self)
+        btn_export = QPushButton("Use this metadata", self)
+        dialog_buttons.addStretch(1)
+        dialog_buttons.addWidget(btn_cancel)
+        dialog_buttons.addWidget(btn_export)
+        layout.addLayout(dialog_buttons)
+
+        btn_add.clicked.connect(self._add_sample_row)
+        btn_remove.clicked.connect(self._remove_selected_rows)
+        btn_copy.clicked.connect(self._copy_selected_metadata)
+        btn_add_column.clicked.connect(self._add_columns)
+        btn_remove_column.clicked.connect(self._remove_optional_column)
+        btn_cancel.clicked.connect(self.reject)
+        btn_export.clicked.connect(self._accept_metadata)
+
+    def _defaults_for_file(self, file_path: str) -> dict:
+        base = os.path.splitext(os.path.basename(file_path))[0]
+        return {
+            "file": file_path,
+            "source_name": base,
+            "assay_name": base,
+            "organism": "",
+            "organism_part": "not available",
+            "biological_replicate": "1",
+            "acquisition_method": "",
+            "label": "",
+            "cleavage_agent": "",
+            "fraction_identifier": "1",
+            "technical_replicate": "1",
+            "instrument_override": "",
+        }
+
+    def _append_row(self, values: dict) -> None:
+        row_index = self.table.rowCount()
+        self.table.insertRow(row_index)
+        for column_index, (_, key, _, _) in enumerate(self.columns):
+            value = str(values.get(key, ""))
+            if key == "file":
+                combo = QComboBox(self.table)
+                combo.addItems(self.files)
+                combo.setCurrentText(value)
+                self.table.setCellWidget(row_index, column_index, combo)
+            else:
+                self.table.setItem(row_index, column_index, QTableWidgetItem(value))
+
+    def _value(self, row_index: int, column_index: int) -> str:
+        widget = self.table.cellWidget(row_index, column_index)
+        if isinstance(widget, QComboBox):
+            return widget.currentText().strip()
+        item = self.table.item(row_index, column_index)
+        return item.text().strip() if item is not None else ""
+
+    def _row_values(self, row_index: int) -> dict:
+        return {
+            key: self._value(row_index, column_index)
+            for column_index, (_, key, _, _) in enumerate(self.columns)
+        }
+
+    def _add_sample_row(self) -> None:
+        source_row = self.table.currentRow()
+        if source_row >= 0:
+            values = self._row_values(source_row)
+            values["source_name"] = ""
+            values["label"] = ""
+            for _, key, header, removable in self.columns:
+                if removable and header.startswith("factor value["):
+                    values[key] = ""
+        else:
+            values = self._defaults_for_file(self.files[0])
+        self._append_row(values)
+        self.table.setCurrentCell(self.table.rowCount() - 1, 1)
+
+    def _remove_selected_rows(self) -> None:
+        selected_rows = sorted({index.row() for index in self.table.selectedIndexes()}, reverse=True)
+        for row_index in selected_rows:
+            self.table.removeRow(row_index)
+
+    def _copy_selected_metadata(self) -> None:
+        source_row = self.table.currentRow()
+        if source_row < 0:
+            QMessageBox.information(self, "SDRF metadata", "Select a row to copy first.")
+            return
+        values = self._row_values(source_row)
+        for row_index in range(self.table.rowCount()):
+            if row_index == source_row:
+                continue
+            for column_index in range(3, len(self.columns)):
+                key = self.columns[column_index][1]
+                item = self.table.item(row_index, column_index)
+                if item is None:
+                    item = QTableWidgetItem()
+                    self.table.setItem(row_index, column_index, item)
+                item.setText(values.get(key, ""))
+
+    def _add_columns(self) -> None:
+        existing_headers = [column[2] for column in self.columns]
+        picker = SdrfColumnPickerDialog(
+            available_sdrf_columns(existing_headers),
+            self,
+        )
+        if picker.exec() != QDialog.Accepted:
+            return
+
+        for selected_header in picker.selected_headers:
+            header = selected_header
+            if header == SdrfColumnPickerDialog.CUSTOM_FACTOR:
+                factor_name, accepted = QInputDialog.getText(
+                    self,
+                    "Experimental factor",
+                    "Factor name (for example: disease, treatment, time):",
+                )
+                factor_name = factor_name.strip().casefold()
+                if not accepted:
+                    continue
+                if not factor_name or any(char in factor_name for char in "[]\t\r\n"):
+                    QMessageBox.critical(
+                        self,
+                        "Invalid factor name",
+                        "Enter a factor name without brackets, tabs, or line breaks.",
+                    )
+                    continue
+                header = f"factor value[{factor_name}]"
+
+            if header in {column[2] for column in self.columns}:
+                QMessageBox.information(
+                    self,
+                    "SDRF columns",
+                    f"{header} is already present.",
+                )
+                continue
+            self._append_optional_column(header)
+
+    def _append_optional_column(self, header: str) -> None:
+        column_index = self.table.columnCount()
+        self.table.insertColumn(column_index)
+        self.columns.append((header, header, header, True))
+        header_item = QTableWidgetItem(header)
+        header_item.setToolTip(f"SDRF column: {header}")
+        self.table.setHorizontalHeaderItem(column_index, header_item)
+        self.table.setColumnWidth(column_index, max(180, min(360, len(header) * 8)))
+        for row_index in range(self.table.rowCount()):
+            self.table.setItem(row_index, column_index, QTableWidgetItem(""))
+        self.table.setCurrentCell(0, column_index)
+
+    def _remove_optional_column(self) -> None:
+        column_index = self.table.currentColumn()
+        if column_index < 0:
+            QMessageBox.information(self, "SDRF columns", "Select a column first.")
+            return
+        label, _, header, removable = self.columns[column_index]
+        if not removable:
+            QMessageBox.information(
+                self,
+                "SDRF columns",
+                f"{label} is a required column and cannot be removed.",
+            )
+            return
+        self.table.removeColumn(column_index)
+        self.columns.pop(column_index)
+
+    def _accept_metadata(self) -> None:
+        rows = [self._row_values(row_index) for row_index in range(self.table.rowCount())]
+        extra_columns = [header for _, _, header, removable in self.columns if removable]
+        errors = validate_sdrf_metadata(
+            rows,
+            self.files,
+            extra_columns=extra_columns,
+        )
+        if errors:
+            shown = errors[:12]
+            if len(errors) > len(shown):
+                shown.append(f"...and {len(errors) - len(shown)} more errors")
+            QMessageBox.critical(self, "Invalid SDRF metadata", "\n".join(shown))
+            return
+        self.payload = {
+            "factor_name": "",
+            "extra_columns": extra_columns,
+            "rows": rows,
+        }
         self.accept()
 
 class MetaXtract_GUI(QMainWindow):
@@ -998,9 +1530,10 @@ class MetaXtract_GUI(QMainWindow):
         self.cb_ms1_peaklist = QCheckBox("Export MS1 peak list (parquet)", self)
         self.cb_ms2_technical_details = QCheckBox("Export MS2 technical details", self)
         self.cb_ms1_technical_details = QCheckBox("Export MS1 technical details", self)
+        self.cb_sdrf = QCheckBox("Export SDRF-Proteomics metadata (.sdrf.tsv)", self)
         #self.cb_hdf5 = QCheckBox("AnnData (HDF5 .h5ad) [MS2 only]", self)
         
-        self.cb_multi_cmp = QCheckBox("Multi sample comparison (2 files selection)", self)
+        self.cb_multi_cmp = QCheckBox("Multi-sample comparison (choose 2 or more samples)", self)
         self.cb_multi_cmp.setEnabled(True)
         opt.addWidget(self.cb_multi_cmp)
         opt.addWidget(self.cb_file_details)
@@ -1011,6 +1544,7 @@ class MetaXtract_GUI(QMainWindow):
         opt.addWidget(self.cb_ms1_peaklist)
         opt.addWidget(self.cb_ms2_technical_details)
         opt.addWidget(self.cb_ms1_technical_details)
+        opt.addWidget(self.cb_sdrf)
         #opt.addWidget(self.cb_hdf5)
         main.addWidget(gb_opt)
 
@@ -1203,6 +1737,7 @@ class MetaXtract_GUI(QMainWindow):
         ms1_peaklist_export = self.cb_ms1_peaklist.isChecked()
         ms2_technical_details_export = self.cb_ms2_technical_details.isChecked()
         ms1_technical_details_export = self.cb_ms1_technical_details.isChecked()
+        sdrf_enabled = self.cb_sdrf.isChecked()
         #hdf5_export = self.cb_hdf5.isChecked()
         hdf5_export = False
         export_fmt = None
@@ -1224,10 +1759,18 @@ class MetaXtract_GUI(QMainWindow):
             if len(selected_files) == 2:
                 cmp_files = list(selected_files)
             else:
-                dlg = TwoFilePickerDialog(list(selected_files), self)
+                dlg = ComparisonSamplePickerDialog(list(selected_files), self)
                 if dlg.exec() != QDialog.Accepted:
                     return
                 cmp_files = dlg.selected
+
+        sdrf_payload = None
+        if sdrf_enabled:
+            processed_files = cmp_files if (multi_cmp and cmp_files) else selected_files
+            dlg = SdrfMetadataDialog(list(processed_files), self)
+            if dlg.exec() != QDialog.Accepted:
+                return
+            sdrf_payload = dlg.payload
 
         if self._thread is not None and self._thread.isRunning():
             self.show_error("Processing already running.")
@@ -1254,6 +1797,7 @@ class MetaXtract_GUI(QMainWindow):
             export_fmt=export_fmt,
             multi_cmp=multi_cmp,
             cmp_files=cmp_files,
+            sdrf_payload=sdrf_payload,
             hdf5_export=hdf5_export, 
             ms2_peaklist_export=ms2_peaklist_export,
             ms1_peaklist_export=ms1_peaklist_export,

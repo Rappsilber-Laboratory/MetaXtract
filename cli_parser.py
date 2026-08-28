@@ -17,6 +17,7 @@ from plotly_visualizer import (
     write_comparison_html_multi,
     write_comparison_html_with_boxplots,
 )
+from runtime_metrics import FileUsageMonitor, format_bytes, format_file_usage
 
 
 def _cancel_requested(should_stop=None) -> bool:
@@ -132,17 +133,19 @@ def _selected_columns(block: dict) -> list[str]:
 
 
 def _pick_cmp_inputs(all_inputs: list[str], samples_1based: list[int]) -> list[str]:
-    if not samples_1based or len(samples_1based) != 2:
-        raise ValueError("multi_comparison.samples must have exactly 2 indices (1-based), e.g. [1,3].")
+    if not isinstance(samples_1based, list) or len(samples_1based) < 2:
+        raise ValueError(
+            "multi_comparison.samples must have at least 2 indices (1-based), e.g. [1, 3, 4]."
+        )
     out = []
     for idx in samples_1based:
-        if not isinstance(idx, int):
+        if not isinstance(idx, int) or isinstance(idx, bool):
             raise ValueError("multi_comparison.samples must be integers.")
         if idx < 1 or idx > len(all_inputs):
             raise ValueError(f"multi_comparison index {idx} out of range for {len(all_inputs)} inputs.")
         out.append(all_inputs[idx - 1])
-    if out[0] == out[1]:
-        raise ValueError("multi_comparison.samples must point to two different files.")
+    if len(set(samples_1based)) != len(samples_1based) or len(set(out)) != len(out):
+        raise ValueError("multi_comparison.samples must point to different files.")
     return out
 
 
@@ -393,6 +396,27 @@ def write_info_tsv(raw_parser, out_tsv_path: str, should_stop=None):
 
 def run_cli(args):
     stop_event = threading.Event()
+    file_usage_monitor = None
+    file_usage_path = None
+
+    def start_file_usage(input_file):
+        nonlocal file_usage_monitor, file_usage_path
+        file_usage_path = input_file
+        file_usage_monitor = FileUsageMonitor().start()
+        print(
+            f"[METRICS] Started: {input_file} | "
+            f"Memory RSS: {format_bytes(file_usage_monitor.start_rss_bytes)}"
+        )
+
+    def finish_file_usage(status):
+        nonlocal file_usage_monitor, file_usage_path
+        monitor = file_usage_monitor
+        input_file = file_usage_path
+        file_usage_monitor = None
+        file_usage_path = None
+        if monitor is None or input_file is None:
+            return
+        print(f"[METRICS] {status}: {input_file} | {format_file_usage(monitor.stop())}")
 
     def request_stop(signum, _frame):
         if stop_event.is_set():
@@ -485,7 +509,12 @@ def run_cli(args):
             continue
 
         print(f"[INFO] Processing: {input_file}")
-        raw_parser = MetaXtract(input_file)
+        start_file_usage(input_file)
+        try:
+            raw_parser = MetaXtract(input_file)
+        except Exception:
+            finish_file_usage("Failed")
+            raise
 
         base = os.path.splitext(os.path.basename(input_file))[0]
         sample_out = os.path.join(outdir, base)
@@ -623,9 +652,12 @@ def run_cli(args):
                 all_ms2_prec.append((base, x, y))
 
         raw_parser.CloseRAWFile()
-        print(f"[INFO] Done: {input_file}\n")
+        print(f"[INFO] Done: {input_file}")
+        finish_file_usage("Finished")
+        print()
 
     if stop_event.is_set():
+        finish_file_usage("Stopped")
         print("[INFO] Processing stopped.")
 
     if not stop_event.is_set() and graphical_representation and len(all_ms1_tic) >= 2:

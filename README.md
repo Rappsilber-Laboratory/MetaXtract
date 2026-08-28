@@ -25,6 +25,7 @@ MetaXtract is a hybrid tool for extracting, analysing, and visualising data from
 - Exports data as:
   - CSV / TSV
   - Parquet (peak lists)
+  - SDRF-Proteomics (`metadata.sdrf.tsv`)
   - Interactive Plotly HTML reports
 - Cross-sample visual comparisons
 - Designed for downstream computational analysis
@@ -63,6 +64,167 @@ python main.py
 ```bash
 python main.py --config /path/to/config.yml
 ```
+
+### Running with Docker or Apptainer/Singularity
+
+MetaXtract can also be run as a CLI-only Linux container. This is the recommended
+mode for using macOS and for HPC infrastructure where a graphical
+desktop is not available.
+
+Build the Docker image:
+
+```bash
+docker build -t metaxtract:latest .
+```
+
+Run a mounted RAW-file directory and output directory:
+
+```bash
+docker run --rm \
+  -v /path/to/raw_files:/data:ro \
+  -v /path/to/output:/out \
+  metaxtract:latest \
+  --input /data/sample.raw \
+  --output-dir /out \
+  --file-based-details \
+  --complete-ms1 \
+  --complete-ms2 \
+  --ms1-peaklist-export \
+  --ms2-peaklist-export \
+  --graphical-representation
+```
+
+Example using the bundled small RAW file:
+
+```bash
+mkdir -p output/docker_small
+docker run --rm \
+  -v "$(pwd)/data:/data:ro" \
+  -v "$(pwd)/output/docker_small:/out" \
+  metaxtract:latest \
+  --input /data/small.RAW \
+  --output-dir /out \
+  --file-based-details \
+  --complete-ms1 \
+  --complete-ms2 \
+  --ms1-peaklist-export \
+  --ms2-peaklist-export \
+  --graphical-representation
+```
+
+The repository also includes `config_container_small.yml`, a container-ready
+configuration for the bundled small RAW file:
+
+```yaml
+io:
+  input:
+    - /data/small.RAW
+  output_dir: /out
+
+outputs:
+  file_based_details: true
+  ms_method: false
+  lc_method: false
+  ms2_peaklist_export: true
+  ms1_peaklist_export: true
+  ms2_technical_details_export: false
+  ms1_technical_details_export: false
+  hdf5_export: false
+
+scan_header:
+  MS1:
+    select_all: true
+    columns:
+      Ion Injection Time (ms): true
+      Total Number of Peaks: true
+      Total Ion Current: true
+      Scan Start Time (min): true
+      Base Peak Intensity: true
+      Base Peak m/z: true
+      Scan Mode: true
+      thermo_Multi Inject Info: true
+      thermo_Multiple Injection: true
+  MS2:
+    select_all: true
+    columns:
+      Total Ion Current: true
+      Total Number of Peaks: true
+      Scan Start Time (min): true
+      Base Peak Intensity: true
+      Base Peak m/z: true
+      Selected Ion Intensity: true
+      Filter String: true
+      Scan Mode: true
+
+visualisation:
+  enabled: true
+  format: html
+
+multi_comparison:
+  enabled: false
+```
+
+Run Docker with the included config file:
+
+```bash
+mkdir -p output/docker_small
+docker run --rm \
+  -v "$(pwd)/data:/data:ro" \
+  -v "$(pwd)/output/docker_small:/out" \
+  -v "$(pwd)/config_container_small.yml:/config.yml:ro" \
+  metaxtract:latest \
+  --config /config.yml
+```
+
+On Apple Silicon Macs, build and run the Linux x86_64 image explicitly if the
+default platform does not work:
+
+```bash
+docker build --platform linux/amd64 -t metaxtract:latest .
+docker run --platform linux/amd64 --rm -v /path/to/raw_files:/data:ro -v /path/to/output:/out metaxtract:latest --input /data/sample.raw --output-dir /out --file-based-details
+```
+
+For HPC systems, build an Apptainer/Singularity image from Docker or from the
+included definition file:
+
+```bash
+apptainer build metaxtract.sif apptainer.def
+apptainer run --bind /path/to/raw_files:/data,/path/to/output:/out metaxtract.sif --input /data/sample.raw --output-dir /out --file-based-details
+```
+
+Run the bundled small RAW file with Apptainer/Singularity:
+
+```bash
+mkdir -p output/hpc_small
+apptainer run \
+  --bind "$(pwd)/data:/data","$(pwd)/output/hpc_small:/out" \
+  metaxtract.sif \
+  --input /data/small.RAW \
+  --output-dir /out \
+  --file-based-details \
+  --complete-ms1 \
+  --complete-ms2 \
+  --ms1-peaklist-export \
+  --ms2-peaklist-export \
+  --graphical-representation
+```
+
+Run Apptainer/Singularity with the included config file:
+
+```bash
+mkdir -p output/hpc_small
+apptainer run \
+  --bind "$(pwd)/data:/data","$(pwd)/output/hpc_small:/out","$(pwd)/config_container_small.yml:/config.yml" \
+  metaxtract.sif \
+  --config /config.yml
+```
+
+The container uses the bundled Thermo RawFileReader DLLs through Mono and
+`pythonnet`. The GUI is not included in the container workflow; use command-line
+options or a YAML configuration file. MS-method and LC-method export should be
+disabled on Linux containers because those Thermo method-reading calls are not
+supported on Linux.
+
 #### Configuration File (`config.yml`)
 
 MetaXtract can be fully configured using a YAML configuration file.  
@@ -73,7 +235,9 @@ This allows reproducible, automated runs without passing long CLI arguments.
 ```yaml
 io:
   input:
-    - path/to/sample.RAW
+    - path/to/sample_1.RAW
+    - path/to/sample_2.RAW
+    - path/to/sample_3.RAW
   output_dir: output
 
 outputs:
@@ -101,6 +265,11 @@ scan_header:
 visualisation:
   enabled: true
   format: html
+
+multi_comparison:
+  enabled: true
+  # Select any 2 or more inputs using their 1-based positions in io.input.
+  samples: [1, 2, 3]
 ```
 ---
 ### GUI Options
@@ -165,7 +334,17 @@ Columns intentionally marked as Thermo-specific because they are RAW trailer fie
 
 Check the [documentation](Doc/Doc.pdf) for more details. 
 #### Visualisation
-Interactive Plotly HTML reports, MS1 and MS2 trends, and Cross-sample overlays and boxplots.
+Interactive Plotly HTML reports, MS1 and MS2 trends, and cross-sample overlays and boxplots. In the GUI, enable **Multi-sample comparison** and select any 2 or more of the loaded samples. In YAML/CLI runs, list the samples under `multi_comparison.samples` using 1-based indices such as `[1, 2, 4]`.
+
+#### Runtime and memory logging
+For every processed RAW file, both the GUI log and CLI output report memory at the start and a final summary containing runtime, ending memory, sampled peak memory, and memory change. Memory is the resident set size (RSS) of the MetaXtract process, so it includes Python, native libraries, and Thermo/.NET allocations used while that file is processed.
+
+#### SDRF-Proteomics export
+Enable **Export SDRF-Proteomics metadata (.sdrf.tsv)** in the GUI to open the metadata editor before processing. MetaXtract fills the RAW filename, instrument model, acquisition date, technology type, SDRF version, and template. Initially, the grid shows only required MS-proteomics inputs that cannot be determined reliably from a RAW file.
+
+Use **Add column** to search and multi-select from the complete known column-name catalog in the official SDRF templates registry. This includes sample, clinical, organism, DIA, single-cell, crosslinking, immunopeptidomics, metaproteomics, environmental, affinity-proteomics, and metabolomics fields. A custom `factor value[...]` column can also be added from the same picker. Added columns must be filled for every row and can be removed again with **Remove optional column**.
+
+The editor starts with one sample-to-file row per selected RAW file. Additional rows can be added for multiplexed experiments where multiple samples or labels share a RAW file. The dataset-level file is written as `metadata.sdrf.tsv` in the root output directory using the `ms-proteomics v1.1.0` template.
 
 ---
 ## Using MetaXtract as a Python Library
@@ -268,10 +447,3 @@ This project is licensed under the Apache-2.0 license.
 **RawFileReader** reading tool. Copyright © 2016 by Thermo Fisher Scientific, Inc. All rights reserved. See [THERMO_LICENSE.txt](https://github.com/lutfia95/MetaXtract/blob/main/os_data/THERMO_LICENSE.txt) for licensing information. 
 Note: anyone recieving RawFileReader as part of a larger software distribution (in the current context, as part of MetaXtract) is considered an "end user" under 
 section 3.3 of the RawFileReader License, and is not granted rights to redistribute RawFileReader.
-
-
-
-
-
-
-

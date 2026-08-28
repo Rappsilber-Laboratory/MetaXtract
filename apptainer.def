@@ -1,0 +1,48 @@
+Bootstrap: docker
+From: python:3.11-slim-bullseye
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends ca-certificates dirmngr gnupg
+    gpg --homedir /tmp --no-default-keyring \
+        --keyring gnupg-ring:/usr/share/keyrings/mono-official-archive-keyring.gpg \
+        --keyserver hkp://keyserver.ubuntu.com:80 \
+        --recv-keys 3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF
+    chmod +r /usr/share/keyrings/mono-official-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/mono-official-archive-keyring.gpg] https://download.mono-project.com/repo/debian stable-buster/snapshots/6.12.0.182 main" > /etc/apt/sources.list.d/mono-official-stable.list
+    apt-get update
+    apt-get install -y --no-install-recommends mono-complete
+    rm -rf /var/lib/apt/lists/*
+    python3 -m venv /opt/venv
+    /opt/venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
+    /opt/venv/bin/pip install --no-cache-dir -r /opt/metaxtract/requirements-cli.txt
+
+%files
+    requirements-cli.txt /opt/metaxtract/requirements-cli.txt
+    LICENSE /opt/metaxtract/LICENSE
+    README.md /opt/metaxtract/README.md
+    config.yml /opt/metaxtract/config.yml
+    config_container_small.yml /opt/metaxtract/config_container_small.yml
+    main.py /opt/metaxtract/main.py
+    cli_parser.py /opt/metaxtract/cli_parser.py
+    raw_parser.py /opt/metaxtract/raw_parser.py
+    plotly_visualizer.py /opt/metaxtract/plotly_visualizer.py
+    runtime_metrics.py /opt/metaxtract/runtime_metrics.py
+    anndata_export.py /opt/metaxtract/anndata_export.py
+    explore_peak_list.py /opt/metaxtract/explore_peak_list.py
+    sdrf_columns.py /opt/metaxtract/sdrf_columns.py
+    sdrf_export.py /opt/metaxtract/sdrf_export.py
+    os_data /opt/metaxtract/os_data
+    assets /opt/metaxtract/assets
+    img /opt/metaxtract/img
+    data /opt/metaxtract/data
+    tests /opt/metaxtract/tests
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export PYTHONPATH=/opt/metaxtract
+    export PATH=/opt/venv/bin:$PATH
+
+%runscript
+    exec /opt/venv/bin/python /opt/metaxtract/main.py "$@"
