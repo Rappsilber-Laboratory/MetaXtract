@@ -51,7 +51,12 @@ from plotly_visualizer import (
 )
 
 from anndata_export import export_ms2_to_h5ad
-from runtime_metrics import FileUsageMonitor, format_bytes, format_file_usage
+from runtime_metrics import (
+    FileUsageMonitor,
+    append_runtime_usage_tsv,
+    format_bytes,
+    format_file_usage,
+)
 from sdrf_columns import column_group
 from sdrf_export import (
     available_sdrf_columns,
@@ -302,6 +307,7 @@ class _ExtractionWorker(QObject):
         self._current_raw_parser = None
         self._file_usage_monitor: FileUsageMonitor | None = None
         self._file_usage_path: str | None = None
+        self._runtime_log_path: Path | None = None
 
     @Slot()
     def stop(self):
@@ -333,6 +339,11 @@ class _ExtractionWorker(QObject):
             return
         usage = monitor.stop()
         self.log.emit(f"[METRICS] {status}: {selected_file} | {format_file_usage(usage)}")
+        if self._runtime_log_path is not None:
+            try:
+                append_runtime_usage_tsv(self._runtime_log_path, selected_file, status, usage)
+            except Exception as e:
+                self.log.emit(f"[METRICS][WARN] Could not write runtime TSV: {e}")
 
     def _remove_empty_lines(self, input_file: str) -> None:
         try:
@@ -681,6 +692,8 @@ class _ExtractionWorker(QObject):
 
             global_out = Path(self.output_dir_raw)
             global_out.mkdir(parents=True, exist_ok=True)
+            self._runtime_log_path = global_out / f"runtime_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
+            self.log.emit(f"[METRICS] Runtime TSV: {self._runtime_log_path}")
             cmp_set = set(self.cmp_files) if (self.multi_cmp and self.cmp_files) else None
 
             for selected_file in self.selected_files:

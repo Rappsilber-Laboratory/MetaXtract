@@ -393,7 +393,7 @@ Check the [documentation](Doc/Doc.pdf) for more details.
 Interactive Plotly HTML reports, MS1 and MS2 trends, and cross-sample overlays and boxplots. In the GUI, enable **Multi-sample comparison** and select any 2 or more of the loaded samples. In YAML/CLI runs, list the samples under `multi_comparison.samples` using 1-based indices such as `[1, 2, 4]`.
 
 #### Runtime and memory logging
-For every processed RAW file, both the GUI log and CLI output report memory at the start and a final summary containing runtime, ending memory, sampled peak memory, and memory change. Memory is the resident set size (RSS) of the MetaXtract process, so it includes Python, native libraries, and Thermo/.NET allocations used while that file is processed.
+For every processed RAW file, both the GUI log and CLI output report memory at the start and a final summary containing runtime, ending memory, sampled peak memory, and memory change. Each run also writes `runtime_summary_YYYYMMDD_HHMMSS.tsv` in the root output directory. The TSV contains one row per processed RAW file with status, runtime in seconds, start/end/peak memory in GB, and memory change in GB. Memory is the resident set size (RSS) of the MetaXtract process, so it includes Python, native libraries, and Thermo/.NET allocations used while that file is processed.
 
 #### SDRF-Proteomics export
 Enable **Export SDRF-Proteomics metadata (.sdrf.tsv)** in the GUI to open the metadata editor before processing. MetaXtract fills the RAW filename, instrument model, acquisition date, technology type, SDRF version, and template. Initially, the grid shows only required MS-proteomics inputs that cannot be determined reliably from a RAW file.

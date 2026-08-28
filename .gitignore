@@ -1,12 +1,12 @@
-.git
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-build/
-dist/
-*.egg-info/
+
 output/
+workflow/results/
+workflow/.snakemake/
+
 *.sif
-*.sqsh
+mono_crash.*.json

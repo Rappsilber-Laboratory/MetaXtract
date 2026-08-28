@@ -4,7 +4,9 @@ import os
 import sys
 import threading
 import time
+import csv
 from dataclasses import dataclass
+from pathlib import Path
 
 
 if sys.platform == "win32":
@@ -158,6 +160,12 @@ def format_bytes(byte_count: int | None) -> str:
     return f"{byte_count / (1024 * 1024):.1f} MiB"
 
 
+def bytes_to_gb(byte_count: int | None) -> str:
+    if byte_count is None:
+        return ""
+    return f"{byte_count / (1024 ** 3):.6f}"
+
+
 def format_duration(seconds: float) -> str:
     hours, remainder = divmod(max(0.0, seconds), 3600)
     minutes, remaining_seconds = divmod(remainder, 60)
@@ -182,3 +190,49 @@ def format_file_usage(usage: FileUsage) -> str:
         f" | Peak: {format_bytes(usage.peak_rss_bytes)}"
         f" | Change: {change_sign}{change}"
     )
+
+
+RUNTIME_TSV_HEADERS = [
+    "raw_file",
+    "sample_name",
+    "status",
+    "runtime_s",
+    "start_memory_gb",
+    "end_memory_gb",
+    "peak_memory_gb",
+    "memory_change_gb",
+]
+
+
+def runtime_usage_row(input_file: str | Path, status: str, usage: FileUsage) -> dict[str, str]:
+    path = Path(input_file)
+    change_gb = ""
+    if usage.start_rss_bytes is not None and usage.end_rss_bytes is not None:
+        change_gb = f"{(usage.end_rss_bytes - usage.start_rss_bytes) / (1024 ** 3):.6f}"
+    return {
+        "raw_file": str(input_file),
+        "sample_name": path.stem,
+        "status": str(status),
+        "runtime_s": f"{usage.elapsed_seconds:.3f}",
+        "start_memory_gb": bytes_to_gb(usage.start_rss_bytes),
+        "end_memory_gb": bytes_to_gb(usage.end_rss_bytes),
+        "peak_memory_gb": bytes_to_gb(usage.peak_rss_bytes),
+        "memory_change_gb": change_gb,
+    }
+
+
+def append_runtime_usage_tsv(
+    output_path: str | Path,
+    input_file: str | Path,
+    status: str,
+    usage: FileUsage,
+) -> Path:
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not output_path.exists() or output_path.stat().st_size == 0
+    with output_path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=RUNTIME_TSV_HEADERS, delimiter="\t")
+        if write_header:
+            writer.writeheader()
+        writer.writerow(runtime_usage_row(input_file, status, usage))
+    return output_path

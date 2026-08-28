@@ -17,7 +17,12 @@ from plotly_visualizer import (
     write_comparison_html_multi,
     write_comparison_html_with_boxplots,
 )
-from runtime_metrics import FileUsageMonitor, format_bytes, format_file_usage
+from runtime_metrics import (
+    FileUsageMonitor,
+    append_runtime_usage_tsv,
+    format_bytes,
+    format_file_usage,
+)
 
 
 def _cancel_requested(should_stop=None) -> bool:
@@ -461,6 +466,7 @@ def run_cli(args):
     stop_event = threading.Event()
     file_usage_monitor = None
     file_usage_path = None
+    runtime_log_path = None
 
     def start_file_usage(input_file):
         nonlocal file_usage_monitor, file_usage_path
@@ -479,7 +485,13 @@ def run_cli(args):
         file_usage_path = None
         if monitor is None or input_file is None:
             return
-        print(f"[METRICS] {status}: {input_file} | {format_file_usage(monitor.stop())}")
+        usage = monitor.stop()
+        print(f"[METRICS] {status}: {input_file} | {format_file_usage(usage)}")
+        if runtime_log_path is not None:
+            try:
+                append_runtime_usage_tsv(runtime_log_path, input_file, status, usage)
+            except Exception as e:
+                print(f"[METRICS][WARN] Could not write runtime TSV: {e}")
 
     def request_stop(signum, _frame):
         if stop_event.is_set():
@@ -513,6 +525,8 @@ def run_cli(args):
         sys.exit(1)
 
     os.makedirs(outdir, exist_ok=True)
+    runtime_log_path = Path(outdir) / f"runtime_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
+    print(f"[METRICS] Runtime TSV: {runtime_log_path}")
 
     cfg_outputs = _cfg_get(cfg, ["outputs"], {}) or {}
     hdf5_export = bool(getattr(args, "hdf5_export", False) or cfg_outputs.get("hdf5_export", False))

@@ -1,9 +1,8 @@
 io:
   input:
-    - "C:/Users/yynk1/Desktop/thermo_reader/github/MetaXtract/data/MS2_MS1_orbitrap.raw"
-    - "C:/Users/yynk1/Desktop/thermo_reader/github/MetaXtract/data/small.raw"
-    - "C:/Users/yynk1/Desktop/thermo_reader/data/B240103_02_Astral_ZC_QC_51_Hela.raw"
-  output_dir: "C:/Users/yynk1/Desktop/thermo_reader/github/MetaXtract/output/cli/"
+    - "data/MS2_MS1_orbitrap.raw"
+    - "data/small.raw"
+  output_dir: "output/cli/"
 
 outputs:
   file_based_details: true
