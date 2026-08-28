@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 import re
 import signal
@@ -246,6 +247,19 @@ def trailer_value(trailer_data, output_label: str):
     return None
 
 
+def selected_ion_intensity_value(raw_parser, scan_number: int, trailer_data) -> tuple[object, str]:
+    value = trailer_value(trailer_data, "Selected Ion Intensity")
+    numeric_value = to_float(value)
+    if numeric_value is not None and math.isfinite(numeric_value):
+        return value, "trailer"
+
+    value = safe_call(lambda: raw_parser.GetPrecursorIntensityFromScanNumber(scan_number))
+    numeric_value = to_float(value)
+    if numeric_value is not None and math.isfinite(numeric_value):
+        return value, "computed"
+    return "N/A", "missing"
+
+
 class LogWindow(QDialog):
 
     def __init__(self, parent=None):
@@ -432,7 +446,7 @@ class _ExtractionWorker(QObject):
                         return bp[1] if isinstance(bp, (list, tuple)) and len(bp) >= 2 and bp[1] not in (None, "") else "N/A"
 
                     if opt in ("Selected Ion Intensity", "Precursor Intensity"):
-                        v = safe_call(lambda: raw_parser.GetPrecursorIntensityFromScanNumber(scan_number))
+                        v, _source = selected_ion_intensity_value(raw_parser, scan_number, trailer_data)
                         return v if v not in (None, "") else "N/A"
 
                     if opt in ("Scan Window m/z Range", "Mass Ranges"):
@@ -481,7 +495,8 @@ class _ExtractionWorker(QObject):
                     tnp = to_int(safe_call(lambda: raw_parser.GetNumPeaksForScanNumber(scan_number)))
                     cs = to_int(td_get(trailer_data, "Charge State"))
                     iit = to_float(td_get(trailer_data, "Ion Injection Time (ms)"))
-                    prec_i = to_float(safe_call(lambda: raw_parser.GetPrecursorIntensityFromScanNumber(scan_number)))
+                    prec_i_raw, prec_i_source = selected_ion_intensity_value(raw_parser, scan_number, trailer_data)
+                    prec_i = to_float(prec_i_raw)
                     
                     if rt is None:
                         rt = to_float(safe_call(lambda: raw_parser.GetRetentionTimeFromScanNumber(scan_number)))
@@ -492,7 +507,8 @@ class _ExtractionWorker(QObject):
                     if tnp is None:
                         tnp = to_int(safe_call(lambda: raw_parser.GetNumPeaksForScanNumber(scan_number)))
                     if prec_i is None:
-                        prec_i = to_float(safe_call(lambda: raw_parser.GetPrecursorIntensityFromScanNumber(scan_number)))
+                        prec_i_raw, prec_i_source = selected_ion_intensity_value(raw_parser, scan_number, trailer_data)
+                        prec_i = to_float(prec_i_raw)
                     if cs is None:
                         cs = to_int(safe_call(lambda: raw_parser.GetMS2ChargeFromScanNumber(scan_number)))
                     if iit is None:
@@ -507,6 +523,7 @@ class _ExtractionWorker(QObject):
                     plotly_vis.ms2_data["Total Ion Current"].append(tic or 0.0)
                     plotly_vis.ms2_data["Total Number of Peaks"].append(tnp or 0)
                     plotly_vis.ms2_data["Selected Ion Intensity"].append(prec_i or 0.0)
+                    plotly_vis.ms2_data["Selected Ion Intensity Source"].append(prec_i_source)
                     plotly_vis.ms2_data["Charge State"].append(cs or 0)
                     plotly_vis.ms2_data["Ion Injection Time (ms)"].append(iit or 0.0)
 

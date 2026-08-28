@@ -400,7 +400,16 @@ Columns intentionally marked as Thermo-specific because they are RAW trailer fie
 
 Check the [documentation](Doc/Doc.pdf) for more details. 
 #### Visualisation
-Interactive Plotly HTML reports, MS1 and MS2 trends, and cross-sample overlays and boxplots. In the GUI, enable **Multi-sample comparison** and select any 2 or more of the loaded samples. In YAML/CLI runs, list the samples under `multi_comparison.samples` using 1-based indices such as `[1, 2, 4]`.
+Interactive Plotly HTML reports, MS1 and MS2 trends, and cross-sample overlays and boxplots.
+
+Visualisation output cases:
+
+- One RAW file with visualisation enabled: MetaXtract writes only the per-file reports, for example `<sample>_MS1.html` and/or `<sample>_MS2.html`.
+- Two or more RAW files with visualisation enabled: MetaXtract writes the per-file reports and also writes combined comparison reports, `MS1_compare.html` and/or `MS2_compare.html`, using all processed files.
+- GUI with **Multi-sample comparison** enabled: the user selects any 2 or more loaded files, and `MS1_compare.html` / `MS2_compare.html` are generated only for that selected subset.
+- YAML/CLI with `multi_comparison.enabled: true`: list the files to compare under `multi_comparison.samples` using 1-based input positions such as `[1, 2, 4]`; the comparison reports are generated for that subset.
+
+If visualisation is disabled, no per-file or comparison HTML reports are written.
 
 #### Runtime and memory logging
 For every processed RAW file, both the GUI log and CLI output report memory at the start and a final summary containing runtime, ending memory, sampled peak memory, and memory change. Each run also writes `runtime_summary_YYYYMMDD_HHMMSS.tsv` in the root output directory. The TSV contains one row per processed RAW file with status, runtime in seconds, start/end/peak memory in GB, and memory change in GB. Memory is the resident set size (RSS) of the MetaXtract process, so it includes Python, native libraries, and Thermo/.NET allocations used while that file is processed.

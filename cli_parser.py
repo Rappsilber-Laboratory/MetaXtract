@@ -5,6 +5,7 @@ import signal
 import sys
 import threading
 import yaml
+import math
 from datetime import datetime
 import csv, json
 from pathlib import Path
@@ -14,6 +15,7 @@ from anndata_export import export_ms2_to_h5ad
 from plotly_visualizer import (
     PlotlyMS1Visualizer,
     PlotlyMS2Visualizer,
+    to_float,
     write_comparison_html_multi,
     write_comparison_html_with_boxplots,
 )
@@ -159,6 +161,22 @@ def trailer_value(trailer_data, output_label: str):
     return None
 
 
+def selected_ion_intensity_value(raw_parser, scan_number: int, trailer_data) -> tuple[object, str]:
+    value = trailer_value(trailer_data, "Selected Ion Intensity")
+    numeric_value = to_float(value)
+    if numeric_value is not None and math.isfinite(numeric_value):
+        return value, "trailer"
+
+    try:
+        value = raw_parser.GetPrecursorIntensityFromScanNumber(scan_number)
+    except Exception:
+        value = None
+    numeric_value = to_float(value)
+    if numeric_value is not None and math.isfinite(numeric_value):
+        return value, "computed"
+    return "N/A", "missing"
+
+
 def format_scan_window_mz_range(raw_parser, scan_number: int):
     n = raw_parser.GetNumberOfMassRangesFromScanNumber(scan_number) or 0
     ranges = []
@@ -284,7 +302,10 @@ def extract_scan_header_to_csv(
                 trailer_data = raw_parser.GetTrailerExtraInformaionEdited(scan_number) or {}
 
                 for option in selected_options:
-                    value = trailer_value(trailer_data, option)
+                    if option in ("Selected Ion Intensity", "Precursor Intensity"):
+                        value, _source = selected_ion_intensity_value(raw_parser, scan_number, trailer_data)
+                    else:
+                        value = trailer_value(trailer_data, option)
                     if value is None:
                         value = option_functions.get(option, lambda sn: "N/A")(scan_number)
                     row.append(value)
@@ -292,12 +313,16 @@ def extract_scan_header_to_csv(
                 csv_writer.writerow(row)
 
                 if graphical_representation and plotly_vis is not None:
+                    selected_ion_intensity, selected_ion_source = selected_ion_intensity_value(
+                        raw_parser, scan_number, trailer_data
+                    )
                     plotly_vis.ms2_scans.append(scan_number)
                     plotly_vis.ms2_data["Scan Start Time (min)"].append(raw_parser.GetRetentionTimeFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Elapsed Scan Time (sec)"].append(raw_parser.GetElaspedScanTimeFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Total Ion Current"].append(raw_parser.GetTICForScanNumber(scan_number))
                     plotly_vis.ms2_data["Total Number of Peaks"].append(raw_parser.GetNumPeaksForScanNumber(scan_number))
-                    plotly_vis.ms2_data["Selected Ion Intensity"].append(raw_parser.GetPrecursorIntensityFromScanNumber(scan_number))
+                    plotly_vis.ms2_data["Selected Ion Intensity"].append(selected_ion_intensity)
+                    plotly_vis.ms2_data["Selected Ion Intensity Source"].append(selected_ion_source)
                     plotly_vis.ms2_data["Charge State"].append(raw_parser.GetMS2ChargeFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Ion Injection Time (ms)"].append(raw_parser.GetIonInjectionTimeFromScanNumber(scan_number))
                     plotly_vis.ms2_data.setdefault("Base Peak Intensity", []).append(raw_parser.GetBasePeakForScanNumber(scan_number)[1])
