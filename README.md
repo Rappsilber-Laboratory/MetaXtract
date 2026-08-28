@@ -186,13 +186,13 @@ docker run --rm \
   --config /config.yml
 ```
 
-On Apple Silicon Macs, build and run the Linux x86_64 image explicitly if the
-default platform does not work:
+On Apple Silicon Macs, build and run the image without `--platform` first so
+Docker uses the native ARM64 Linux backend:
 
 ```bash
-docker build --platform linux/amd64 -t metaxtract:latest .
+docker build -t metaxtract:latest .
 mkdir -p output/docker_small
-docker run --platform linux/amd64 --rm \
+docker run --rm \
   -v "$(pwd)/data:/data:ro" \
   -v "$(pwd)/output/docker_small:/out" \
   metaxtract:latest \
@@ -205,6 +205,15 @@ docker run --platform linux/amd64 --rm \
   --ms2-peaklist-export \
   --graphical-representation
 ```
+
+Do not use smart quotes copied from rich-text editors in Docker commands; use
+plain shell quotes such as `"$(pwd)/data:/data:ro"`.
+
+Running the container with `--platform linux/amd64` on Apple Silicon uses
+emulation. If Mono or `pythonnet` crashes with a message such as
+`Assertion: should not be reached at tramp-amd64.c`, rebuild and run without
+`--platform`. If native ARM64 execution does not work on the machine, run the
+container on an x86_64 Linux workstation or HPC node instead.
 
 For HPC systems, build an Apptainer/Singularity image from Docker or from the
 included definition file:
