@@ -218,12 +218,37 @@ container on an x86_64 Linux workstation or HPC node instead.
 For HPC systems, build an Apptainer/Singularity image from Docker or from the
 included definition file:
 
+On WSL2 Ubuntu, Apptainer can be installed with:
+
+```bash
+sudo apt update
+sudo apt install -y software-properties-common
+sudo add-apt-repository -y ppa:apptainer/ppa
+sudo apt update
+sudo apt install -y apptainer
+```
+
+Check the installation:
+
+```bash
+apptainer --version
+```
+
+If the PPA is not available for the Ubuntu version installed in WSL2, check the
+Ubuntu version with:
+
+```bash
+lsb_release -a
+```
+
+Then from the MetaXtract repository, build the Apptainer/Singularity image:
+
 ```bash
 apptainer build metaxtract.sif apptainer.def
 apptainer run --bind /path/to/raw_files:/data,/path/to/output:/out metaxtract.sif --input /data/sample.raw --output-dir /out --file-based-details
 ```
 
-Run the bundled small RAW file with Apptainer/Singularity:
+Run the bundled small RAW file with Apptainer/Singularity on WSL2 or HPC:
 
 ```bash
 mkdir -p output/hpc_small
