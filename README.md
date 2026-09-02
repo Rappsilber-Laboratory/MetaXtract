@@ -15,8 +15,8 @@ MetaXtract is a hybrid tool for extracting, analysing, and visualising data from
 
 ## Features
 
-- Reads native **Thermo RAW** files (Windows + Linux)
-- GUI and CLI workflows
+- Reads native **Thermo RAW** files
+- GUI and CLI supports
 - Extracts:
   - File and instrument metadata
   - MS1 and MS2 scan headers
@@ -36,9 +36,14 @@ MetaXtract is a hybrid tool for extracting, analysing, and visualising data from
 
 ### Requirements
 - Python ≥ 3.9
-- Thermo Fisher RAW access (DLLs included in the repository)
+- Thermo Fisher RAW access (DLLs included in this repository)
 
 ### Install dependencies
+
+```bash
+pip install -r requirements-cli.txt
+```
+Or:
 
 ```bash
 pip install numpy pandas pyarrow pyyaml tqdm plotly anndata h5py pythonnet PySide6
@@ -205,9 +210,6 @@ docker run --rm \
   --ms2-peaklist-export \
   --graphical-representation
 ```
-
-Do not use smart quotes copied from rich-text editors in Docker commands; use
-plain shell quotes such as `"$(pwd)/data:/data:ro"`.
 
 Running the container with `--platform linux/amd64` on Apple Silicon uses
 emulation. If Mono or `pythonnet` crashes with a message such as
