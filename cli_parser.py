@@ -28,6 +28,7 @@ from runtime_metrics import (
 from sdrf_export import (
     draft_sdrf_row_for_file,
     enrich_sdrf_rows_for_file,
+    raw_instrument_name,
     read_sdrf_user_metadata,
     validate_sdrf_metadata,
     write_sdrf,
@@ -496,23 +497,6 @@ def write_info_tsv(raw_parser, out_tsv_path: str, should_stop=None):
             w.writerow([_tsv_safe(sec), _tsv_safe(key), _tsv_safe(val)])
 
 
-def _raw_instrument_name(raw_parser) -> str:
-    instrument_details = raw_parser.GetInstrumentDetails() or {}
-    instrument_candidates = (
-        instrument_details.get("Instrument Model"),
-        instrument_details.get("Instrument Name"),
-        raw_parser.GetInstrumentName(),
-    )
-    return next(
-        (
-            str(value).strip()
-            for value in instrument_candidates
-            if value and str(value).strip().casefold() not in {"unknown", "n/a", "not available"}
-        ),
-        "",
-    )
-
-
 def run_cli(args):
     stop_event = threading.Event()
     file_usage_monitor = None
@@ -687,7 +671,7 @@ def run_cli(args):
             finish_file_usage("Failed")
             raise
 
-        instrument = _raw_instrument_name(raw_parser)
+        instrument = raw_instrument_name(raw_parser)
         acquisition_date = raw_parser.GetFileCreationDate()
 
         if sdrf_metadata_path:

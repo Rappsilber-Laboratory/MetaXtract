@@ -148,6 +148,25 @@ def _known_text(value) -> str:
     return cleaned
 
 
+def raw_instrument_name(raw_parser) -> str:
+    """Return the best instrument model reported by an open RAW parser."""
+    try:
+        instrument_details = raw_parser.GetInstrumentDetails() or {}
+    except Exception:
+        instrument_details = {}
+
+    candidates = [
+        instrument_details.get("Instrument Model"),
+        instrument_details.get("Instrument Name"),
+    ]
+    try:
+        candidates.append(raw_parser.GetInstrumentName())
+    except Exception:
+        pass
+
+    return next((_known_text(value) for value in candidates if _known_text(value)), "")
+
+
 def normalize_acquisition_method(value: str) -> str:
     cleaned = _text(value)
     return ACQUISITION_METHODS.get(cleaned.casefold(), cleaned)

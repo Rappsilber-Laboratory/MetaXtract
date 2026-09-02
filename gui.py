@@ -62,6 +62,9 @@ from sdrf_columns import column_group
 from sdrf_export import (
     available_sdrf_columns,
     enrich_sdrf_rows_for_file,
+    normalize_acquisition_method,
+    normalize_instrument,
+    raw_instrument_name,
     validate_sdrf_metadata,
     write_sdrf,
 )
@@ -729,22 +732,7 @@ class _ExtractionWorker(QObject):
                 out_dir.mkdir(parents=True, exist_ok=True)
 
                 if self.sdrf_payload:
-                    instrument_details = safe_call(lambda: raw_parser.GetInstrumentDetails(), {}) or {}
-                    instrument_candidates = (
-                        instrument_details.get("Instrument Model"),
-                        instrument_details.get("Instrument Name"),
-                        safe_call(lambda: raw_parser.GetInstrumentName(), ""),
-                    )
-                    instrument = next(
-                        (
-                            str(value).strip()
-                            for value in instrument_candidates
-                            if value
-                            and str(value).strip().casefold()
-                            not in {"unknown", "n/a", "not available"}
-                        ),
-                        "",
-                    )
+                    instrument = raw_instrument_name(raw_parser)
                     acquisition_date = safe_call(lambda: raw_parser.GetFileCreationDate(), "")
                     file_rows = enrich_sdrf_rows_for_file(
                         self.sdrf_payload.get("rows", []),
@@ -1100,6 +1088,13 @@ class SdrfColumnPickerDialog(QDialog):
 
 
 class SdrfMetadataDialog(QDialog):
+    ACQUISITION_METHOD_OPTIONS = (
+        ("DDA — Data-dependent acquisition", "DDA"),
+        ("DIA — Data-independent acquisition", "DIA"),
+        ("PRM — Parallel reaction monitoring", "PRM"),
+        ("SRM — Selected reaction monitoring", "SRM"),
+    )
+
     REQUIRED_COLUMNS = [
         ("RAW file", "file", "comment[data file]", False),
         ("source name", "source_name", "source name", False),
@@ -1112,14 +1107,15 @@ class SdrfMetadataDialog(QDialog):
         ("comment[cleavage agent details]", "cleavage_agent", "comment[cleavage agent details]", False),
         ("comment[fraction identifier]", "fraction_identifier", "comment[fraction identifier]", False),
         ("comment[technical replicate]", "technical_replicate", "comment[technical replicate]", False),
-        ("comment[instrument] (auto / override)", "instrument_override", "comment[instrument]", False),
+        ("comment[instrument] (detected; editable)", "instrument_override", "comment[instrument]", False),
     ]
 
-    def __init__(self, files: list[str], parent=None):
+    def __init__(self, files: list[str], detected_instruments=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("SDRF-Proteomics metadata")
         self.setMinimumSize(1050, 620)
         self.files = list(files)
+        self.detected_instruments = dict(detected_instruments or {})
         self.payload: dict = {}
         self.columns = list(self.REQUIRED_COLUMNS)
         self.setStyleSheet(
@@ -1246,7 +1242,8 @@ class SdrfMetadataDialog(QDialog):
             "Only required MS-proteomics fields are shown initially. Complete them, then use "
             "Add column for any optional, recommended, or specialized SDRF field. "
             "MetaXtract fills the data filename, instrument, acquisition date, SDRF version, and template. "
-            "Use DDA/DIA/PRM/SRM and Trypsin/Lys-C shorthand if desired.",
+            "The instrument is detected from each RAW file and can be edited if correction is needed. "
+            "Choose the acquisition method from its dropdown. Trypsin/Lys-C shorthand can be used.",
             self,
         )
         instructions.setWordWrap(True)
@@ -1314,7 +1311,7 @@ class SdrfMetadataDialog(QDialog):
             "cleavage_agent": "",
             "fraction_identifier": "1",
             "technical_replicate": "1",
-            "instrument_override": "",
+            "instrument_override": self.detected_instruments.get(file_path, ""),
         }
 
     def _append_row(self, values: dict) -> None:
@@ -1327,12 +1324,34 @@ class SdrfMetadataDialog(QDialog):
                 combo.addItems(self.files)
                 combo.setCurrentText(value)
                 self.table.setCellWidget(row_index, column_index, combo)
+            elif key == "acquisition_method":
+                combo = QComboBox(self.table)
+                combo.addItem("Select acquisition method", "")
+                for label, method in self.ACQUISITION_METHOD_OPTIONS:
+                    combo.addItem(label, method)
+                self._set_combo_value(combo, value)
+                self.table.setCellWidget(row_index, column_index, combo)
             else:
                 self.table.setItem(row_index, column_index, QTableWidgetItem(value))
+
+    @staticmethod
+    def _set_combo_value(combo: QComboBox, value: str) -> None:
+        target = normalize_acquisition_method(value)
+        for item_index in range(combo.count()):
+            item_value = combo.itemData(item_index)
+            if item_value is None:
+                item_value = combo.itemText(item_index)
+            if normalize_acquisition_method(item_value) == target:
+                combo.setCurrentIndex(item_index)
+                return
+        combo.setCurrentIndex(0)
 
     def _value(self, row_index: int, column_index: int) -> str:
         widget = self.table.cellWidget(row_index, column_index)
         if isinstance(widget, QComboBox):
+            item_value = widget.currentData()
+            if item_value is not None:
+                return str(item_value).strip()
             return widget.currentText().strip()
         item = self.table.item(row_index, column_index)
         return item.text().strip() if item is not None else ""
@@ -1373,6 +1392,10 @@ class SdrfMetadataDialog(QDialog):
                 continue
             for column_index in range(3, len(self.columns)):
                 key = self.columns[column_index][1]
+                widget = self.table.cellWidget(row_index, column_index)
+                if isinstance(widget, QComboBox):
+                    self._set_combo_value(widget, values.get(key, ""))
+                    continue
                 item = self.table.item(row_index, column_index)
                 if item is None:
                     item = QTableWidgetItem()
@@ -1675,6 +1698,29 @@ class MetaXtract_GUI(QMainWindow):
     def show_error(self, msg: str):
         QMessageBox.critical(self, "Error", str(msg))
 
+    def _detect_sdrf_instruments(self, files: list[str]) -> tuple[dict[str, str], list[str]]:
+        detected = {}
+        failures = []
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            for file_path in files:
+                raw_parser = None
+                try:
+                    raw_parser = MetaXtract(file_path)
+                    instrument = normalize_instrument(raw_instrument_name(raw_parser))
+                    if instrument:
+                        detected[file_path] = instrument
+                    else:
+                        failures.append(file_path)
+                except Exception:
+                    failures.append(file_path)
+                finally:
+                    if raw_parser is not None:
+                        safe_call(lambda: raw_parser.CloseRAWFile(), None)
+        finally:
+            QApplication.restoreOverrideCursor()
+        return detected, failures
+
     def select_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select RAW files", "", "RAW Files (*.raw);;All Files (*)")
         if files:
@@ -1807,7 +1853,22 @@ class MetaXtract_GUI(QMainWindow):
         sdrf_payload = None
         if sdrf_enabled:
             processed_files = cmp_files if (multi_cmp and cmp_files) else selected_files
-            dlg = SdrfMetadataDialog(list(processed_files), self)
+            detected_instruments, detection_failures = self._detect_sdrf_instruments(
+                list(processed_files)
+            )
+            if detection_failures:
+                failed_names = "\n".join(os.path.basename(path) for path in detection_failures)
+                QMessageBox.warning(
+                    self,
+                    "Instrument model not detected",
+                    "MetaXtract could not prefill comment[instrument] for:\n"
+                    f"{failed_names}\n\nEnter the instrument model manually for those rows.",
+                )
+            dlg = SdrfMetadataDialog(
+                list(processed_files),
+                detected_instruments=detected_instruments,
+                parent=self,
+            )
             if dlg.exec() != QDialog.Accepted:
                 return
             sdrf_payload = dlg.payload
