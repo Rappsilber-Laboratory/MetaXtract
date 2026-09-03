@@ -8,6 +8,7 @@ from sdrf_export import (
     enrich_sdrf_rows_for_file,
     normalize_acquisition_date,
     normalize_instrument,
+    raw_instrument_name,
     read_sdrf_user_metadata,
     validate_sdrf_metadata,
     write_sdrf,
@@ -127,6 +128,24 @@ class SdrfExportTests(unittest.TestCase):
         self.assertEqual(
             normalize_instrument("custom prototype"),
             "custom prototype",
+        )
+
+    def test_reads_instrument_model_used_by_the_info_tsv(self):
+        class FakeRawParser:
+            def GetInstrumentDetails(self):
+                return {
+                    "Instrument Model": "Orbitrap Exploris 480",
+                    "Instrument Name": "Orbitrap Exploris Slot #10272",
+                }
+
+            def GetInstrumentName(self):
+                return "Orbitrap Exploris Slot #10272"
+
+        instrument = raw_instrument_name(FakeRawParser())
+        self.assertEqual(instrument, "Orbitrap Exploris 480")
+        self.assertEqual(
+            normalize_instrument(instrument),
+            "NT=Orbitrap Exploris 480;AC=MS:1003028",
         )
 
     def test_builds_draft_sdrf_row_with_only_raw_derived_values(self):
