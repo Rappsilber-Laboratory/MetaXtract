@@ -6,6 +6,8 @@ import sys
 import argparse
 from pathlib import Path
 
+from version import VERSION
+
 
 def _is_cli(args: argparse.Namespace) -> bool:
     return any(
@@ -29,7 +31,8 @@ def _is_cli(args: argparse.Namespace) -> bool:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="MetaXtract")
+    p = argparse.ArgumentParser(description=f"MetaXtract {VERSION}")
+    p.add_argument("--version", action="version", version=f"MetaXtract {VERSION}")
 
     p.add_argument("--config", type=str, help="Path to YAML configuration file")
 

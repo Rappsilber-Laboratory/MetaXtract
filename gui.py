@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 )
 
 from raw_parser import MetaXtract
+from version import VERSION
 from plotly_visualizer import (
     PlotlyMS1Visualizer,
     PlotlyMS2Visualizer,
@@ -1492,7 +1493,7 @@ class SdrfMetadataDialog(QDialog):
 class MetaXtract_GUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MetaXtract")
+        self.setWindowTitle(f"MetaXtract {VERSION}")
         self.setMinimumSize(1020, 760)
         self._thread: QThread | None = None
         self._worker: _ExtractionWorker | None = None

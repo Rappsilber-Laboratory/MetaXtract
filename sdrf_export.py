@@ -6,11 +6,12 @@ from datetime import datetime
 from pathlib import Path
 
 from sdrf_columns import KNOWN_SDRF_HEADERS
+from version import VERSION
 
 
 SDRF_VERSION = "v1.1.0"
 SDRF_TEMPLATE = "ms-proteomics v1.1.0"
-SDRF_ANNOTATION_TOOL = "MetaXtract"
+SDRF_ANNOTATION_TOOL = f"MetaXtract {VERSION}"
 TECHNOLOGY_TYPE = "proteomic profiling by mass spectrometry"
 
 ACQUISITION_METHODS = {
