@@ -3,7 +3,7 @@
 MetaXtract is a hybrid tool for extracting, analysing, and visualising data from **Thermo Fisher RAW** mass spectrometry files. It can be used via a **Graphical User Interface (GUI)**, a **Command Line Interface (CLI)**, or directly as a **Python library** for programmatic workflows.
 
 <div align="center">
-<img src="img/abstract.svg" alt="MetaXtract abstract" width="350">
+<img src="img/graphical_abstract.png" alt="MetaXtract abstract" width="350">
 </div>
 <div align="center">
 
