@@ -38,7 +38,7 @@ MetaXtract is a hybrid tool for extracting, analysing, and visualising data from
 - Python ≥ 3.9
 - Thermo Fisher RAW access (DLLs included in this repository)
 
-### Install dependencies
+### Install dependencies (Windows/Linux)
 
 ```bash
 pip install -r requirements-cli.txt
@@ -49,7 +49,7 @@ Or:
 pip install numpy pandas pyarrow pyyaml tqdm plotly anndata h5py pythonnet PySide6
 ```
 
-## Build Windows tool
+## Build executable tool
 
 ```bash
 pip install pyinstaller
@@ -61,11 +61,11 @@ pyinstaller --noconfirm --onedir --console --name MetaXtract   --icon assets/ico
 ```
 ---
 ## Usage
-### Running the GUI
+### Running the GUI (Windows/Linux)
 ```bash
 python main.py
 ```
-### Running the CLI
+### Running the CLI (Windows/Linux)
 ```bash
 python main.py --config /path/to/config.yml
 ```
