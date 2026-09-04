@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+output/
+workflow/results/
+workflow/.snakemake/
+
+*.sif
+mono_crash.*.json
+*.tex
+*.log
+*.aux
+*.out
+*.pdf

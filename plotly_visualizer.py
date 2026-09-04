@@ -77,6 +77,44 @@ def _log10p1(vals):
     arr = np.where(arr < 0, 0, arr)
     return np.log10(arr + 1.0)
 
+
+def _selected_ion_intensity_note(sources) -> str:
+    sources = list(sources or [])
+    if not sources:
+        return ""
+    trailer_count = sources.count("trailer")
+    computed_count = sources.count("computed")
+    missing_count = sources.count("missing")
+    if computed_count == 0 and missing_count == 0:
+        return ""
+    parts = [
+        f"{trailer_count} scans used RAW trailer metadata",
+        f"{computed_count} scans used computed precursor-intensity fallback",
+    ]
+    if missing_count:
+        parts.append(f"{missing_count} scans had no usable value")
+    return "Selected Ion Intensity source: " + "; ".join(parts) + "."
+
+
+def _add_bottom_note(fig: go.Figure, note: str) -> go.Figure:
+    if not note:
+        return fig
+    fig.add_annotation(
+        text=note,
+        xref="paper",
+        yref="paper",
+        x=0,
+        y=-0.22,
+        showarrow=False,
+        align="left",
+        xanchor="left",
+        yanchor="top",
+        font=dict(size=12, color="#4b5563"),
+    )
+    fig.update_layout(margin=dict(b=100))
+    return fig
+
+
 def make_boxplot_figure(title: str, y_label: str, sample_to_values: dict, log10p1: bool = False) -> go.Figure:
     fig = go.Figure()
     for sample, values in (sample_to_values or {}).items():
@@ -293,6 +331,7 @@ class PlotlyMS2Visualizer:
             "Total Ion Current": [],
             "Total Number of Peaks": [],
             "Selected Ion Intensity": [],
+            "Selected Ion Intensity Source": [],
             "Charge State": [],
             "Ion Injection Time (ms)": [],
             "Base Peak Intensity": [],
@@ -308,6 +347,9 @@ class PlotlyMS2Visualizer:
         tic = _farr(self.ms2_data["Total Ion Current"])
         tnp = _farr(self.ms2_data["Total Number of Peaks"])
         prec = _farr(self.ms2_data["Selected Ion Intensity"])
+        prec_note = _selected_ion_intensity_note(
+            self.ms2_data.get("Selected Ion Intensity Source", [])
+        )
         cs = _iarr(self.ms2_data["Charge State"])
         iit_ms = _farr(self.ms2_data["Ion Injection Time (ms)"])
         est = _farr(self.ms2_data["Elapsed Scan Time (sec)"])
@@ -333,29 +375,29 @@ class PlotlyMS2Visualizer:
         if prec.size:
             figs.append(_Fig(
                 "Selected Ion Intensity vs RT (min)",
-                go.Figure(
+                _add_bottom_note(go.Figure(
                     data=[go.Scatter(x=rt_min, y=prec, mode="lines", name=self.single_file_name)],
                     layout=go.Layout(title="MS2 Selected Ion Intensity vs RT (min)", xaxis_title="RT (min)", yaxis_title="Selected Ion Intensity"),
-                )
+                ), prec_note)
             ))
 
         if iit_ms.size and prec.size:
             iit_s = iit_ms / 1000.0
             figs.append(_Fig(
                 "2D hist: log10(Selected Ion Intensity) vs IIT (s)",
-                go.Figure(
+                _add_bottom_note(go.Figure(
                     data=[go.Histogram2d(x=iit_s, y=_safe_log10(prec), nbinsx=60, nbinsy=60)],
                     layout=go.Layout(title="MS2 log10(Selected Ion Intensity) vs IIT (s)", xaxis_title="IIT (s)", yaxis_title="log10(Selected Ion Intensity)"),
-                )
+                ), prec_note)
             ))
 
         if tnp.size and prec.size:
             figs.append(_Fig(
                 "2D hist: log10(Selected Ion Intensity) vs Total Peaks",
-                go.Figure(
+                _add_bottom_note(go.Figure(
                     data=[go.Histogram2d(x=tnp, y=_safe_log10(prec), nbinsx=60, nbinsy=60)],
                     layout=go.Layout(title="MS2 log10(Selected Ion Intensity) vs Total Peaks", xaxis_title="Total Peaks", yaxis_title="log10(Selected Ion Intensity)"),
-                )
+                ), prec_note)
             ))
 
         if cs.size:

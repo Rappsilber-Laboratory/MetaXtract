@@ -3,7 +3,7 @@
 MetaXtract is a hybrid tool for extracting, analysing, and visualising data from **Thermo Fisher RAW** mass spectrometry files. It can be used via a **Graphical User Interface (GUI)**, a **Command Line Interface (CLI)**, or directly as a **Python library** for programmatic workflows.
 
 <div align="center">
-<img src="img/abstract.svg" alt="MetaXtract abstract" width="350">
+<img src="img/graphical_abstract.png" alt="MetaXtract abstract" width="350">
 </div>
 <div align="center">
 
@@ -15,8 +15,8 @@ MetaXtract is a hybrid tool for extracting, analysing, and visualising data from
 
 ## Features
 
-- Reads native **Thermo RAW** files (Windows + Linux)
-- GUI and CLI workflows
+- Reads native **Thermo RAW** files
+- GUI and CLI supports
 - Extracts:
   - File and instrument metadata
   - MS1 and MS2 scan headers
@@ -25,6 +25,7 @@ MetaXtract is a hybrid tool for extracting, analysing, and visualising data from
 - Exports data as:
   - CSV / TSV
   - Parquet (peak lists)
+  - SDRF-Proteomics (`metadata.sdrf.tsv`)
   - Interactive Plotly HTML reports
 - Cross-sample visual comparisons
 - Designed for downstream computational analysis
@@ -35,9 +36,14 @@ MetaXtract is a hybrid tool for extracting, analysing, and visualising data from
 
 ### Requirements
 - Python ≥ 3.9
-- Thermo Fisher RAW access (DLLs included in the repository)
+- Thermo Fisher RAW access (DLLs included in this repository)
 
 ### Install dependencies
+
+```bash
+pip install -r requirements-cli.txt
+```
+Or:
 
 ```bash
 pip install numpy pandas pyarrow pyyaml tqdm plotly anndata h5py pythonnet PySide6
@@ -63,6 +69,220 @@ python main.py
 ```bash
 python main.py --config /path/to/config.yml
 ```
+
+### Running with Docker or Apptainer/Singularity
+
+MetaXtract can also be run as a CLI-only Linux container. This is the recommended
+mode for macOS and HPC infrastructure where a graphical desktop is not available.
+
+On macOS, `brew install docker` installs mostly the Docker CLI, not the Docker
+daemon/engine. Mac computers run Linux containers through Docker Desktop or
+another VM-based backend because macOS cannot run Linux containers directly.
+Install Docker Desktop, open it, and wait until it finishes starting:
+
+```bash
+brew install --cask docker
+open -a Docker
+docker info
+```
+
+Build the Docker image:
+
+```bash
+docker build -t metaxtract:latest .
+```
+
+Run a mounted RAW-file directory and output directory:
+
+```bash
+docker run --rm \
+  -v /path/to/raw_files:/data:ro \
+  -v /path/to/output:/out \
+  metaxtract:latest \
+  --input /data/sample.raw \
+  --output-dir /out \
+  --file-based-details \
+  --complete-ms1 \
+  --complete-ms2 \
+  --ms1-peaklist-export \
+  --ms2-peaklist-export \
+  --graphical-representation
+```
+
+Example using the bundled small RAW file:
+
+```bash
+mkdir -p output/docker_small
+docker run --rm \
+  -v "$(pwd)/data:/data:ro" \
+  -v "$(pwd)/output/docker_small:/out" \
+  metaxtract:latest \
+  --input /data/small.RAW \
+  --output-dir /out \
+  --file-based-details \
+  --complete-ms1 \
+  --complete-ms2 \
+  --ms1-peaklist-export \
+  --ms2-peaklist-export \
+  --graphical-representation
+```
+
+The repository also includes `config_container_small.yml`, a container-ready
+configuration for the bundled small RAW file:
+
+```yaml
+io:
+  input:
+    - /data/small.RAW
+  output_dir: /out
+
+outputs:
+  file_based_details: true
+  ms_method: false
+  lc_method: false
+  ms2_peaklist_export: true
+  ms1_peaklist_export: true
+  ms2_technical_details_export: false
+  ms1_technical_details_export: false
+  hdf5_export: false # default is false, based on the use-case can be modified 
+
+scan_header:
+  MS1:
+    select_all: true
+    columns:
+      Ion Injection Time (ms): true
+      Total Number of Peaks: true
+      Total Ion Current: true
+      Scan Start Time (min): true
+      Base Peak Intensity: true
+      Base Peak m/z: true
+      Scan Mode: true
+      thermo_Multi Inject Info: true
+      thermo_Multiple Injection: true
+  MS2:
+    select_all: true
+    columns:
+      Total Ion Current: true
+      Total Number of Peaks: true
+      Scan Start Time (min): true
+      Base Peak Intensity: true
+      Base Peak m/z: true
+      Selected Ion Intensity: true
+      Filter String: true
+      Scan Mode: true
+
+visualisation:
+  enabled: true
+  format: html
+
+multi_comparison:
+  enabled: false
+```
+
+Run Docker with the included config file:
+
+```bash
+mkdir -p output/docker_small
+docker run --rm \
+  -v "$(pwd)/data:/data:ro" \
+  -v "$(pwd)/output/docker_small:/out" \
+  -v "$(pwd)/config_container_small.yml:/config.yml:ro" \
+  metaxtract:latest \
+  --config /config.yml
+```
+
+On Apple Silicon Macs, build and run the image without `--platform` first so
+Docker uses the native ARM64 Linux backend:
+
+```bash
+docker build -t metaxtract:latest .
+mkdir -p output/docker_small
+docker run --rm \
+  -v "$(pwd)/data:/data:ro" \
+  -v "$(pwd)/output/docker_small:/out" \
+  metaxtract:latest \
+  --input /data/small.RAW \
+  --output-dir /out \
+  --file-based-details \
+  --complete-ms1 \
+  --complete-ms2 \
+  --ms1-peaklist-export \
+  --ms2-peaklist-export \
+  --graphical-representation
+```
+
+Running the container with `--platform linux/amd64` on Apple Silicon uses
+emulation. If Mono or `pythonnet` crashes with a message such as
+`Assertion: should not be reached at tramp-amd64.c`, rebuild and run without
+`--platform`. If native ARM64 execution does not work on the machine, run the
+container on an x86_64 Linux workstation or HPC node instead.
+
+For HPC systems, build an Apptainer/Singularity image from Docker or from the
+included definition file:
+
+On WSL2 Ubuntu, Apptainer can be installed with:
+
+```bash
+sudo apt update
+sudo apt install -y software-properties-common
+sudo add-apt-repository -y ppa:apptainer/ppa
+sudo apt update
+sudo apt install -y apptainer
+```
+
+Check the installation:
+
+```bash
+apptainer --version
+```
+
+If the PPA is not available for the Ubuntu version installed in WSL2, check the
+Ubuntu version with:
+
+```bash
+lsb_release -a
+```
+
+Then from the MetaXtract repository, build the Apptainer/Singularity image:
+
+```bash
+apptainer build metaxtract.sif apptainer.def
+apptainer run --bind /path/to/raw_files:/data,/path/to/output:/out metaxtract.sif --input /data/sample.raw --output-dir /out --file-based-details
+```
+
+Run the bundled small RAW file with Apptainer/Singularity on WSL2 or HPC:
+
+```bash
+mkdir -p output/hpc_small
+apptainer run \
+  --bind "$(pwd)/data:/data","$(pwd)/output/hpc_small:/out" \
+  metaxtract.sif \
+  --input /data/small.RAW \
+  --output-dir /out \
+  --file-based-details \
+  --complete-ms1 \
+  --complete-ms2 \
+  --ms1-peaklist-export \
+  --ms2-peaklist-export \
+  --graphical-representation
+```
+
+Run Apptainer/Singularity with the included config file:
+
+```bash
+mkdir -p output/hpc_small
+apptainer run \
+  --bind "$(pwd)/data:/data","$(pwd)/output/hpc_small:/out","$(pwd)/config_container_small.yml:/config.yml" \
+  metaxtract.sif \
+  --config /config.yml
+```
+
+The container uses the bundled Thermo RawFileReader DLLs through Mono and
+`pythonnet`. The GUI is not included in the container workflow; use command-line
+options or a YAML configuration file. MS-method and LC-method export should be
+disabled on Linux containers because those Thermo method-reading calls are not
+supported on Linux.
+
 #### Configuration File (`config.yml`)
 
 MetaXtract can be fully configured using a YAML configuration file.  
@@ -73,7 +293,9 @@ This allows reproducible, automated runs without passing long CLI arguments.
 ```yaml
 io:
   input:
-    - path/to/sample.RAW
+    - path/to/sample_1.RAW
+    - path/to/sample_2.RAW
+    - path/to/sample_3.RAW
   output_dir: output
 
 outputs:
@@ -84,7 +306,7 @@ outputs:
   ms1_peaklist_export: true
   ms2_technical_details_export: false
   ms1_technical_details_export: false
-  hdf5_export: false
+  hdf5_export: false # default is false, based on the use-case can be modified 
 
 scan_header:
   MS1:
@@ -101,6 +323,21 @@ scan_header:
 visualisation:
   enabled: true
   format: html
+
+sdrf:
+  # Optional CLI/HPC SDRF support.
+  # draft: true writes metadata.sdrf.draft.tsv during the normal run, with
+  # only RAW-derived fields filled. Users can complete it after processing.
+  draft: false
+  draft_output: metadata.sdrf.draft.tsv
+  # metadata can point to a completed user-filled SDRF metadata TSV.
+  metadata: null
+  output: metadata.sdrf.tsv
+
+multi_comparison:
+  enabled: true
+  # Select any 2 or more inputs using their 1-based positions in io.input.
+  samples: [1, 2, 3]
 ```
 ---
 ### GUI Options
@@ -165,7 +402,78 @@ Columns intentionally marked as Thermo-specific because they are RAW trailer fie
 
 Check the [documentation](Doc/Doc.pdf) for more details. 
 #### Visualisation
-Interactive Plotly HTML reports, MS1 and MS2 trends, and Cross-sample overlays and boxplots.
+Interactive Plotly HTML reports, MS1 and MS2 trends, and cross-sample overlays and boxplots.
+
+Visualisation output cases:
+
+- One RAW file with visualisation enabled: MetaXtract writes only the per-file reports, for example `<sample>_MS1.html` and/or `<sample>_MS2.html`.
+- Two or more RAW files with visualisation enabled: MetaXtract writes the per-file reports and also writes combined comparison reports, `MS1_compare.html` and/or `MS2_compare.html`, using all processed files.
+- GUI with **Multi-sample comparison** enabled: the user selects any 2 or more loaded files, and `MS1_compare.html` / `MS2_compare.html` are generated only for that selected subset.
+- YAML/CLI with `multi_comparison.enabled: true`: list the files to compare under `multi_comparison.samples` using 1-based input positions such as `[1, 2, 4]`; the comparison reports are generated for that subset.
+
+If visualisation is disabled, no per-file or comparison HTML reports are written.
+
+#### Runtime and memory logging
+For every processed RAW file, both the GUI log and CLI output report memory at the start and a final summary containing runtime, ending memory, sampled peak memory, and memory change. Each run also writes `runtime_summary_YYYYMMDD_HHMMSS.tsv` in the root output directory. The TSV contains one row per processed RAW file with status, runtime in seconds, start/end/peak memory in GB, and memory change in GB. Memory is the resident set size (RSS) of the MetaXtract process, so it includes Python, native libraries, and Thermo/.NET allocations used while that file is processed.
+
+#### SDRF-Proteomics export
+Enable **Export SDRF-Proteomics metadata (.sdrf.tsv)** in the GUI to open the metadata editor before processing. MetaXtract fills the RAW filename, instrument model, acquisition date, technology type, SDRF annotation tool, SDRF version, and template. Common Thermo instrument models are written as PSI-MS controlled-vocabulary values, for example `NT=Orbitrap Fusion Lumos;AC=MS:1002732`. If the instrument cannot be mapped automatically, fill `comment[instrument]` manually with the preferred `NT=...;AC=...` value. Initially, the grid shows only required MS-proteomics inputs that cannot be determined reliably from a RAW file.
+
+Use **Add column** to search and multi-select from the complete known column-name catalog in the official SDRF templates registry. This includes sample, clinical, organism, DIA, single-cell, crosslinking, immunopeptidomics, metaproteomics, environmental, affinity-proteomics, and metabolomics fields. A custom `factor value[...]` column can also be added from the same picker. Added columns must be filled for every row and can be removed again with **Remove optional column**.
+
+The editor starts with one sample-to-file row per selected RAW file. Additional rows can be added for multiplexed experiments where multiple samples or labels share a RAW file. The dataset-level file is written as `metadata.sdrf.tsv` in the root output directory using the `ms-proteomics v1.1.0` template.
+
+CLI users can generate an SDRF draft during the normal extraction run:
+
+```bash
+python main.py \
+  --input path/to/sample_1.RAW path/to/sample_2.RAW \
+  --output-dir output/cli_run \
+  --file-based-details \
+  --sdrf-draft
+```
+
+This writes `output/cli_run/metadata.sdrf.draft.tsv`. MetaXtract fills only the fields that can be read or derived safely from the RAW file, including the RAW filename, acquisition date, technology type, recognized instrument model, SDRF annotation tool, SDRF version, and SDRF template. Biological and experimental design fields that cannot be inferred from RAW files are left for the user to complete manually.
+
+For the bundled small example, the draft command is:
+
+```bash
+python main.py \
+  --input data/small.RAW \
+  --output-dir output/cli_small \
+  --file-based-details \
+  --sdrf-draft
+```
+
+The same draft mode can be enabled from YAML:
+
+```yaml
+sdrf:
+  draft: true
+  draft_output: metadata.sdrf.draft.tsv
+```
+
+Users who already have a completed metadata TSV can ask MetaXtract to validate/enrich it and write a final SDRF file:
+
+```bash
+python main.py \
+  --input data/small.RAW \
+  --output-dir output/cli_small \
+  --file-based-details \
+  --sdrf-metadata sdrf_input.tsv
+```
+
+The completed metadata file can also be passed from YAML:
+
+```yaml
+sdrf:
+  metadata: sdrf_input.tsv
+  output: metadata.sdrf.tsv
+```
+
+If a user wants a blank starter TSV without processing RAW files, they can still create one with `--sdrf-template-out`; this command only writes the TSV template and exits.
+
+Optional SDRF fields such as `comment[precursor mass tolerance]` and `comment[fragment mass tolerance]` can be added in the GUI, or as extra columns in the CLI metadata TSV. These fields describe the mass-error tolerance intended for downstream identification/search workflows: precursor tolerance applies to intact precursor ions, while fragment tolerance applies to MS/MS fragment ions.
 
 ---
 ## Using MetaXtract as a Python Library
@@ -268,10 +576,3 @@ This project is licensed under the Apache-2.0 license.
 **RawFileReader** reading tool. Copyright © 2016 by Thermo Fisher Scientific, Inc. All rights reserved. See [THERMO_LICENSE.txt](https://github.com/lutfia95/MetaXtract/blob/main/os_data/THERMO_LICENSE.txt) for licensing information. 
 Note: anyone recieving RawFileReader as part of a larger software distribution (in the current context, as part of MetaXtract) is considered an "end user" under 
 section 3.3 of the RawFileReader License, and is not granted rights to redistribute RawFileReader.
-
-
-
-
-
-
-

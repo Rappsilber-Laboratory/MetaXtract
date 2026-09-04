@@ -5,6 +5,7 @@ import signal
 import sys
 import threading
 import yaml
+import math
 from datetime import datetime
 import csv, json
 from pathlib import Path
@@ -14,8 +15,24 @@ from anndata_export import export_ms2_to_h5ad
 from plotly_visualizer import (
     PlotlyMS1Visualizer,
     PlotlyMS2Visualizer,
+    to_float,
     write_comparison_html_multi,
     write_comparison_html_with_boxplots,
+)
+from runtime_metrics import (
+    FileUsageMonitor,
+    append_runtime_usage_tsv,
+    format_bytes,
+    format_file_usage,
+)
+from sdrf_export import (
+    draft_sdrf_row_for_file,
+    enrich_sdrf_rows_for_file,
+    raw_instrument_name,
+    read_sdrf_user_metadata,
+    validate_sdrf_metadata,
+    write_sdrf,
+    write_sdrf_cli_template,
 )
 
 
@@ -71,6 +88,69 @@ COLUMN_SOURCE_ALIASES = {
     "thermo_Multiple Injection": ("Multiple Injection",),
 }
 
+DEFAULT_MS1_COLUMNS = [
+    "Ion Injection Time (ms)",
+    "Total Number of Peaks",
+    "Total Ion Current",
+    "Scan Start Time (min)",
+    "Base Peak Intensity",
+    "Base Peak m/z",
+    "Scan Mode",
+    "thermo_Multi Inject Info",
+    "thermo_Multiple Injection",
+]
+
+DEFAULT_MS2_COLUMNS = [
+    "Total Ion Current",
+    "Total Number of Peaks",
+    "thermo_Number of Channels",
+    "Sampling Frequency",
+    "Collision Energy",
+    "Scan Start Time (min)",
+    "Scan Window m/z Range",
+    "Selected Ion Intensity",
+    "Filter String",
+    "Scan Mode",
+    "thermo_AGC",
+    "thermo_Micro Scan Count",
+    "Ion Injection Time (ms)",
+    "thermo_Elapsed Scan Time (sec)",
+    "Dissociation Method",
+    "Mass Analyzer Type",
+    "Detector Type",
+    "Base Peak m/z",
+    "thermo_Average Scan by Inst",
+    "thermo_Orbitrap Resolution",
+    "thermo_API Process Delay",
+    "thermo_Dependency Type",
+    "thermo_Multi Inject Info",
+    "Base Peak Intensity",
+    "thermo_Master Scan Number",
+    "Experimental Precursor Monoisotopic m/z",
+    "Charge State",
+    "Normalized Collision Energy (%)",
+    "Collision Energy (eV)",
+    "Isolation Window Width (m/z)",
+    "thermo_Access ID",
+    "thermo_Conversion Parameter I",
+    "thermo_Conversion Parameter A",
+    "thermo_Conversion Parameter B",
+    "thermo_Conversion Parameter C",
+    "thermo_Conversion Parameter D",
+    "thermo_Conversion Parameter E",
+    "thermo_Temperature Comp. (ppm)",
+    "thermo_RF Comp. (ppm)",
+    "thermo_Space Charge Comp. (ppm)",
+    "thermo_Resolution Comp. (ppm)",
+    "thermo_Number of LM Found",
+    "thermo_LM Correction (ppm)",
+    "thermo_RawOvFtT",
+    "thermo_Injection t0",
+    "thermo_Reagent Ion Injection Time (ms)",
+    "thermo_FAIMS Voltage On",
+    "FAIMS Compensation Voltage",
+]
+
 
 def trailer_value(trailer_data, output_label: str):
     if not trailer_data:
@@ -80,6 +160,22 @@ def trailer_value(trailer_data, output_label: str):
         if value not in (None, ""):
             return value
     return None
+
+
+def selected_ion_intensity_value(raw_parser, scan_number: int, trailer_data) -> tuple[object, str]:
+    value = trailer_value(trailer_data, "Selected Ion Intensity")
+    numeric_value = to_float(value)
+    if numeric_value is not None and math.isfinite(numeric_value):
+        return value, "trailer"
+
+    try:
+        value = raw_parser.GetPrecursorIntensityFromScanNumber(scan_number)
+    except Exception:
+        value = None
+    numeric_value = to_float(value)
+    if numeric_value is not None and math.isfinite(numeric_value):
+        return value, "computed"
+    return "N/A", "missing"
 
 
 def format_scan_window_mz_range(raw_parser, scan_number: int):
@@ -132,17 +228,19 @@ def _selected_columns(block: dict) -> list[str]:
 
 
 def _pick_cmp_inputs(all_inputs: list[str], samples_1based: list[int]) -> list[str]:
-    if not samples_1based or len(samples_1based) != 2:
-        raise ValueError("multi_comparison.samples must have exactly 2 indices (1-based), e.g. [1,3].")
+    if not isinstance(samples_1based, list) or len(samples_1based) < 2:
+        raise ValueError(
+            "multi_comparison.samples must have at least 2 indices (1-based), e.g. [1, 3, 4]."
+        )
     out = []
     for idx in samples_1based:
-        if not isinstance(idx, int):
+        if not isinstance(idx, int) or isinstance(idx, bool):
             raise ValueError("multi_comparison.samples must be integers.")
         if idx < 1 or idx > len(all_inputs):
             raise ValueError(f"multi_comparison index {idx} out of range for {len(all_inputs)} inputs.")
         out.append(all_inputs[idx - 1])
-    if out[0] == out[1]:
-        raise ValueError("multi_comparison.samples must point to two different files.")
+    if len(set(samples_1based)) != len(samples_1based) or len(set(out)) != len(out):
+        raise ValueError("multi_comparison.samples must point to different files.")
     return out
 
 
@@ -205,7 +303,10 @@ def extract_scan_header_to_csv(
                 trailer_data = raw_parser.GetTrailerExtraInformaionEdited(scan_number) or {}
 
                 for option in selected_options:
-                    value = trailer_value(trailer_data, option)
+                    if option in ("Selected Ion Intensity", "Precursor Intensity"):
+                        value, _source = selected_ion_intensity_value(raw_parser, scan_number, trailer_data)
+                    else:
+                        value = trailer_value(trailer_data, option)
                     if value is None:
                         value = option_functions.get(option, lambda sn: "N/A")(scan_number)
                     row.append(value)
@@ -213,12 +314,16 @@ def extract_scan_header_to_csv(
                 csv_writer.writerow(row)
 
                 if graphical_representation and plotly_vis is not None:
+                    selected_ion_intensity, selected_ion_source = selected_ion_intensity_value(
+                        raw_parser, scan_number, trailer_data
+                    )
                     plotly_vis.ms2_scans.append(scan_number)
                     plotly_vis.ms2_data["Scan Start Time (min)"].append(raw_parser.GetRetentionTimeFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Elapsed Scan Time (sec)"].append(raw_parser.GetElaspedScanTimeFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Total Ion Current"].append(raw_parser.GetTICForScanNumber(scan_number))
                     plotly_vis.ms2_data["Total Number of Peaks"].append(raw_parser.GetNumPeaksForScanNumber(scan_number))
-                    plotly_vis.ms2_data["Selected Ion Intensity"].append(raw_parser.GetPrecursorIntensityFromScanNumber(scan_number))
+                    plotly_vis.ms2_data["Selected Ion Intensity"].append(selected_ion_intensity)
+                    plotly_vis.ms2_data["Selected Ion Intensity Source"].append(selected_ion_source)
                     plotly_vis.ms2_data["Charge State"].append(raw_parser.GetMS2ChargeFromScanNumber(scan_number))
                     plotly_vis.ms2_data["Ion Injection Time (ms)"].append(raw_parser.GetIonInjectionTimeFromScanNumber(scan_number))
                     plotly_vis.ms2_data.setdefault("Base Peak Intensity", []).append(raw_parser.GetBasePeakForScanNumber(scan_number)[1])
@@ -391,8 +496,37 @@ def write_info_tsv(raw_parser, out_tsv_path: str, should_stop=None):
         for sec, key, val in rows:
             w.writerow([_tsv_safe(sec), _tsv_safe(key), _tsv_safe(val)])
 
+
 def run_cli(args):
     stop_event = threading.Event()
+    file_usage_monitor = None
+    file_usage_path = None
+    runtime_log_path = None
+
+    def start_file_usage(input_file):
+        nonlocal file_usage_monitor, file_usage_path
+        file_usage_path = input_file
+        file_usage_monitor = FileUsageMonitor().start()
+        print(
+            f"[METRICS] Started: {input_file} | "
+            f"Memory RSS: {format_bytes(file_usage_monitor.start_rss_bytes)}"
+        )
+
+    def finish_file_usage(status):
+        nonlocal file_usage_monitor, file_usage_path
+        monitor = file_usage_monitor
+        input_file = file_usage_path
+        file_usage_monitor = None
+        file_usage_path = None
+        if monitor is None or input_file is None:
+            return
+        usage = monitor.stop()
+        print(f"[METRICS] {status}: {input_file} | {format_file_usage(usage)}")
+        if runtime_log_path is not None:
+            try:
+                append_runtime_usage_tsv(runtime_log_path, input_file, status, usage)
+            except Exception as e:
+                print(f"[METRICS][WARN] Could not write runtime TSV: {e}")
 
     def request_stop(signum, _frame):
         if stop_event.is_set():
@@ -414,18 +548,32 @@ def run_cli(args):
 
     cfg_inputs = _cfg_get(cfg, ["io", "input"], []) or []
     cfg_outdir = _cfg_get(cfg, ["io", "output_dir"], None)
+    cfg_sdrf = _cfg_get(cfg, ["sdrf"], {}) or {}
 
     inputs = list(getattr(args, "input", None) or cfg_inputs)
     outdir = getattr(args, "output_dir", None) or cfg_outdir
+    sdrf_draft = bool(getattr(args, "sdrf_draft", False) or cfg_sdrf.get("draft", False))
+    sdrf_metadata_path = getattr(args, "sdrf_metadata", None) or cfg_sdrf.get("metadata")
+    sdrf_template_out = getattr(args, "sdrf_template_out", None) or cfg_sdrf.get("template_out")
+    sdrf_output_name = cfg_sdrf.get("output") or "metadata.sdrf.tsv"
+    sdrf_draft_output_name = cfg_sdrf.get("draft_output") or "metadata.sdrf.draft.tsv"
 
     if not inputs:
         print("[ERROR] No input files. Set io.input in config.yml or pass --input ...")
         sys.exit(1)
+
+    if sdrf_template_out:
+        out = write_sdrf_cli_template(sdrf_template_out, inputs)
+        print(f"[INFO] Wrote SDRF metadata template: {out}")
+        return
+
     if not outdir:
         print("[ERROR] No output directory. Set io.output_dir in config.yml or pass --output-dir ...")
         sys.exit(1)
 
     os.makedirs(outdir, exist_ok=True)
+    runtime_log_path = Path(outdir) / f"runtime_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
+    print(f"[METRICS] Runtime TSV: {runtime_log_path}")
 
     cfg_outputs = _cfg_get(cfg, ["outputs"], {}) or {}
     hdf5_export = bool(getattr(args, "hdf5_export", False) or cfg_outputs.get("hdf5_export", False))
@@ -452,9 +600,15 @@ def run_cli(args):
     ms2_block = _cfg_get(cfg, ["scan_header", "MS2"], {}) or {}
 
     if getattr(args, "complete_ms1", False):
-        ms1_block = {"select_all": True, "columns": (ms1_block.get("columns", {}) or {})}
+        columns = ms1_block.get("columns", {}) if isinstance(ms1_block, dict) else {}
+        if not columns:
+            columns = {column: True for column in DEFAULT_MS1_COLUMNS}
+        ms1_block = {"select_all": True, "columns": columns}
     if getattr(args, "complete_ms2", False):
-        ms2_block = {"select_all": True, "columns": (ms2_block.get("columns", {}) or {})}
+        columns = ms2_block.get("columns", {}) if isinstance(ms2_block, dict) else {}
+        if not columns:
+            columns = {column: True for column in DEFAULT_MS2_COLUMNS}
+        ms2_block = {"select_all": True, "columns": columns}
 
     selected_ms1_options = _selected_columns(ms1_block)
     selected_ms2_options = _selected_columns(ms2_block)
@@ -471,6 +625,31 @@ def run_cli(args):
 
     proc_inputs = cmp_inputs if (multi_cmp and cmp_inputs) else inputs
 
+    sdrf_rows = []
+    sdrf_draft_rows = []
+    sdrf_extra_columns = []
+    if sdrf_metadata_path:
+        try:
+            sdrf_user_rows, sdrf_extra_columns = read_sdrf_user_metadata(
+                sdrf_metadata_path,
+                proc_inputs,
+            )
+            errors = validate_sdrf_metadata(
+                sdrf_user_rows,
+                proc_inputs,
+                extra_columns=sdrf_extra_columns,
+            )
+        except Exception as e:
+            print(f"[ERROR] Could not read SDRF metadata TSV: {e}")
+            sys.exit(1)
+        if errors:
+            print("[ERROR] Invalid SDRF metadata TSV:")
+            for error in errors[:20]:
+                print(f"  - {error}")
+            if len(errors) > 20:
+                print(f"  - ...and {len(errors) - 20} more errors")
+            sys.exit(1)
+
     all_ms1_tic, all_ms1_bpi, all_ms1_tnp = [], [], []
     all_ms2_tic, all_ms2_tnp, all_ms2_prec = [], [], []
     ms1_box_tic, ms1_box_bpi, ms1_box_tnp = {}, {}, {}
@@ -485,7 +664,37 @@ def run_cli(args):
             continue
 
         print(f"[INFO] Processing: {input_file}")
-        raw_parser = MetaXtract(input_file)
+        start_file_usage(input_file)
+        try:
+            raw_parser = MetaXtract(input_file)
+        except Exception:
+            finish_file_usage("Failed")
+            raise
+
+        instrument = raw_instrument_name(raw_parser)
+        acquisition_date = raw_parser.GetFileCreationDate()
+
+        if sdrf_metadata_path:
+            file_sdrf_rows = enrich_sdrf_rows_for_file(
+                sdrf_user_rows,
+                input_file,
+                instrument,
+                acquisition_date,
+            )
+            if any(not row.get("instrument") for row in file_sdrf_rows):
+                raw_parser.CloseRAWFile()
+                finish_file_usage("Failed")
+                print(
+                    f"[ERROR] No instrument model was found for {input_file}. "
+                    "Add comment[instrument] in the SDRF metadata TSV."
+                )
+                sys.exit(1)
+            sdrf_rows.extend(file_sdrf_rows)
+
+        if sdrf_draft:
+            sdrf_draft_rows.append(
+                draft_sdrf_row_for_file(input_file, instrument, acquisition_date)
+            )
 
         base = os.path.splitext(os.path.basename(input_file))[0]
         sample_out = os.path.join(outdir, base)
@@ -623,10 +832,28 @@ def run_cli(args):
                 all_ms2_prec.append((base, x, y))
 
         raw_parser.CloseRAWFile()
-        print(f"[INFO] Done: {input_file}\n")
+        print(f"[INFO] Done: {input_file}")
+        finish_file_usage("Finished")
+        print()
 
     if stop_event.is_set():
+        finish_file_usage("Stopped")
         print("[INFO] Processing stopped.")
+
+    if not stop_event.is_set() and sdrf_metadata_path:
+        out = write_sdrf(
+            Path(outdir) / sdrf_output_name,
+            sdrf_rows,
+            extra_columns=sdrf_extra_columns,
+        )
+        print(f"[INFO] SDRF-Proteomics metadata: {out}")
+
+    if not stop_event.is_set() and sdrf_draft:
+        out = write_sdrf(
+            Path(outdir) / sdrf_draft_output_name,
+            sdrf_draft_rows,
+        )
+        print(f"[INFO] Draft SDRF-Proteomics metadata: {out}")
 
     if not stop_event.is_set() and graphical_representation and len(all_ms1_tic) >= 2:
         out = Path(outdir) / "MS1_compare.html"

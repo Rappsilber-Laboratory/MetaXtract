@@ -1,0 +1,46 @@
+io:
+  input:
+    - /data/small.RAW
+  output_dir: /out
+
+outputs:
+  file_based_details: true
+  ms_method: false
+  lc_method: false
+  ms2_peaklist_export: true
+  ms1_peaklist_export: true
+  ms2_technical_details_export: false
+  ms1_technical_details_export: false
+  hdf5_export: false
+
+scan_header:
+  MS1:
+    select_all: true
+    columns:
+      Ion Injection Time (ms): true
+      Total Number of Peaks: true
+      Total Ion Current: true
+      Scan Start Time (min): true
+      Base Peak Intensity: true
+      Base Peak m/z: true
+      Scan Mode: true
+      thermo_Multi Inject Info: true
+      thermo_Multiple Injection: true
+  MS2:
+    select_all: true
+    columns:
+      Total Ion Current: true
+      Total Number of Peaks: true
+      Scan Start Time (min): true
+      Base Peak Intensity: true
+      Base Peak m/z: true
+      Selected Ion Intensity: true
+      Filter String: true
+      Scan Mode: true
+
+visualisation:
+  enabled: true
+  format: html
+
+multi_comparison:
+  enabled: false
