@@ -10,3 +10,8 @@ workflow/.snakemake/
 
 *.sif
 mono_crash.*.json
+*.tex
+*.log
+*.aux
+*.out
+*.pdf
