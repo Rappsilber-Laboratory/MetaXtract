@@ -144,7 +144,7 @@ outputs:
   ms1_peaklist_export: true
   ms2_technical_details_export: false
   ms1_technical_details_export: false
-  hdf5_export: false
+  hdf5_export: false # default is false, based on the use-case can be modified 
 
 scan_header:
   MS1:
@@ -306,7 +306,7 @@ outputs:
   ms1_peaklist_export: true
   ms2_technical_details_export: false
   ms1_technical_details_export: false
-  hdf5_export: false
+  hdf5_export: false # default is false, based on the use-case can be modified 
 
 scan_header:
   MS1:
