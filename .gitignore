@@ -4,6 +4,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+mgf_tests/
+
 output/
 workflow/results/
 workflow/.snakemake/

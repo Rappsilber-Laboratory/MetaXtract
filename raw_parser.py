@@ -1855,6 +1855,181 @@ class MetaXtract:
             return np.array([[], []])
 
 
+    def GetMGFSpectrumFromScanNumber(self, scanNumber: int, *, peak_mode="centroid") -> dict:
+        """Read one MS2 spectrum; reject scans at another MS level."""
+        result = self.GetMGFScanData(scanNumber, peak_mode=peak_mode)
+        if result is None:
+            raise ValueError(f"Scan {scanNumber} is not MS2")
+        return result
+
+    def GetMGFScanData(self, scanNumber: int, *, peak_mode="centroid") -> dict | None:
+        """Return MS2 data, or None for another MS level.
+
+        Include reference/exception-labelled peaks, as msconvert does. Recorded
+        mode preserves profile points (including zeros); centroid mode uses
+        stored label data or vendor centroiding, never profile fallback.
+        """
+        from mgf_exporter import finite_number, PEAK_MODES
+        if peak_mode not in PEAK_MODES:
+            raise ValueError(f"Unknown MGF peak mode: {peak_mode}")
+
+        def number(value):
+            if isinstance(value, str):
+                value = value.strip().replace(",", ".")
+            return finite_number(value)
+
+        event = self.source.GetScanEventForScanNumber(scanNumber)
+        if event is None:
+            raise ValueError(f"Missing scan event for scan {scanNumber}")
+        order = int(IScanEventBase(event).MSOrder)
+        if order < 1:
+            raise ValueError(f"Missing MS order for scan {scanNumber}")
+        if order != 2:
+            if order == 1:
+                self._mgf_last_ms1_scan = scanNumber
+            return None
+        stats = self.source.GetScanStatsForScanNumber(scanNumber)
+        scan_filter = self.source.GetFilterForScanNumber(scanNumber)
+        if stats is None or scan_filter is None:
+            raise ValueError(f"Missing scan data for scan {scanNumber}")
+
+        trailer = {}
+        extra = self.source.GetTrailerExtraInformation(scanNumber)
+        if extra is not None:
+            trailer = {str(k).rstrip(":").strip(): v
+                       for k, v in zip(extra.Labels or [], extra.Values or [])}
+        mono = number(trailer.get("Monoisotopic M/Z"))
+        # Formatted trailer Values truncate monoisotopic m/z to four decimals.
+        # The indexed object API exposes the original full-precision double.
+        if extra is not None:
+            for index, label in enumerate(extra.Labels or []):
+                if str(label).rstrip(":").strip() == "Monoisotopic M/Z":
+                    try:
+                        precise_mono = number(self.source.GetTrailerExtraValue(scanNumber, index))
+                        if precise_mono is not None:
+                            mono = precise_mono
+                    except Exception:
+                        pass  # Older SDKs can still use the formatted value.
+                    break
+        reaction = event.GetReaction(0)
+        target = number(scan_filter.GetMass(0))
+        if target is None or target <= 0:
+            target = number(getattr(reaction, "PrecursorMass", None))
+        width = number(trailer.get("MS2 Isolation Width"))
+        if width is None or width <= 0:
+            width = number(getattr(reaction, "IsolationWidth", None))
+        polarity = str(scan_filter.Polarity)
+        recorded_charge = number(trailer.get("Charge State"))
+        charge = None
+        if recorded_charge is not None and recorded_charge > 0 and recorded_charge.is_integer():
+            if polarity.casefold() in ("positive", "negative"):
+                charge = int(recorded_charge) * (-1 if polarity.casefold() == "negative" else 1)
+
+        # This flag affects segmented scans and Scan.FromFile. Restore it before
+        # returning so other exports using the same open RAW reader keep their
+        # original settings. GetCentroidStream's boolean is explicit as well.
+        previous_include = self.source.IncludeReferenceAndExceptionData
+        self.source.IncludeReferenceAndExceptionData = True
+        try:
+            if peak_mode == "recorded":
+                segmented = self.source.GetSegmentedScanFromScanNumber(scanNumber, stats)
+                masses = DotNetArrayToNPArray(segmented.Positions, float)
+                intensities = DotNetArrayToNPArray(segmented.Intensities, float)
+                peak_source = "stored_centroid" if stats.IsCentroidScan else "stored_profile"
+            else:
+                try:
+                    stream = self.source.GetCentroidStream(scanNumber, True)
+                except Exception:
+                    stream = None
+                if stream is not None and stream.Length > 0:
+                    masses = DotNetArrayToNPArray(stream.Masses, float)
+                    intensities = DotNetArrayToNPArray(stream.Intensities, float)
+                    peak_source = "stored_centroid" if stats.IsCentroidScan else "stored_centroid_stream"
+                elif stats.IsCentroidScan:
+                    segmented = self.source.GetSegmentedScanFromScanNumber(scanNumber, stats)
+                    masses = DotNetArrayToNPArray(segmented.Positions, float)
+                    intensities = DotNetArrayToNPArray(segmented.Intensities, float)
+                    peak_source = "stored_centroid"
+                else:
+                    scan = ThermoFisher.CommonCore.Data.Business.Scan.FromFile(self.source, scanNumber)
+                    centroided = ThermoFisher.CommonCore.Data.Business.Scan.ToCentroid(scan)
+                    if centroided is None or not centroided.HasCentroidStream:
+                        raise ValueError(f"No centroid data available for profile scan {scanNumber}")
+                    stream = centroided.CentroidScan
+                    masses = DotNetArrayToNPArray(stream.Masses, float)
+                    intensities = DotNetArrayToNPArray(stream.Intensities, float)
+                    peak_source = "vendor_centroiding"
+        finally:
+            self.source.IncludeReferenceAndExceptionData = previous_include
+
+        return {
+            "masses": masses, "intensities": intensities,
+            "monoisotopic_mz": mono,
+            "master_scan": number(trailer.get("Master Scan Number")),
+            "isolation_target_mz": target, "isolation_width_mz": width,
+            "isolation_offset_mz": number(getattr(reaction, "IsolationWidthOffset", None)),
+            "charge": charge, "polarity": polarity,
+            "precursor_intensity": number(trailer.get("Precursor Intensity")),
+            "retention_time_minutes": number(self.source.RetentionTimeFromScanNumber(scanNumber)),
+            "centroid_source": peak_source if peak_source != "stored_profile" else "",
+            "peak_source": peak_source,
+        }
+
+    def GetMGFPrecursorIntensityFromScanNumber(self, scanNumber, isolation_mz, width, master_scan=None):
+        """Sum stored MS1 signal in msconvert's +/-1.5 m/z query window.
+
+        This is an isolation-window intensity, not an isolated peptide's intensity.
+        Cache at most four MS1 arrays so a DDA cycle reads its survey spectrum once.
+        """
+        from collections import OrderedDict
+        from mgf_exporter import finite_number
+
+        width = finite_number(width)
+        if width is None or width <= 0:
+            return None, None, "unavailable"
+        cache = getattr(self, "_mgf_ms1_cache", None)
+        if cache is None:
+            cache = self._mgf_ms1_cache = OrderedDict()
+        known_ms1 = getattr(self, "_mgf_last_ms1_scan", None)
+        master = finite_number(master_scan)
+        if master is not None and master.is_integer() and 0 < master < scanNumber:
+            start = int(master)
+        elif known_ms1 is not None and known_ms1 < scanNumber:
+            start = known_ms1
+        else:
+            start = scanNumber - 1
+
+        first_scan = int(self.source.RunHeaderEx.FirstSpectrum)
+        for parent in range(start, first_scan - 1, -1):
+            if parent not in cache:
+                if parent != known_ms1 and self.GetMSOrder(parent) != 1:
+                    continue
+                stats = self.source.GetScanStatsForScanNumber(parent)
+                if stats is None:
+                    continue
+                previous_include = self.source.IncludeReferenceAndExceptionData
+                self.source.IncludeReferenceAndExceptionData = True
+                try:
+                    data = self.source.GetSegmentedScanFromScanNumber(parent, stats)
+                    masses = DotNetArrayToNPArray(data.Positions, float)
+                    intensities = DotNetArrayToNPArray(data.Intensities, float)
+                finally:
+                    self.source.IncludeReferenceAndExceptionData = previous_include
+                if len(masses) != len(intensities):
+                    raise ValueError("MS1 mass and intensity arrays differ in length")
+                cache[parent] = (masses, intensities, float(stats.LowMass), float(stats.HighMass),
+                                 "ms1_centroid_window" if stats.IsCentroidScan else "ms1_profile_window")
+                if len(cache) > 4:
+                    cache.popitem(last=False)
+            masses, intensities, low, high, representation = cache[parent]
+            cache.move_to_end(parent)
+            if not low <= isolation_mz <= high:
+                continue
+            lo, hi = np.searchsorted(masses, [isolation_mz - 1.5, isolation_mz + 1.5], side="left")
+            value = finite_number(np.sum(intensities[lo:hi], dtype=np.float64))
+            return value if value is not None and value > 0 else None, parent, representation
+        return None, None, "unavailable"
+
     def GetCentroidMassListFromScanNumber(self, scanNumber: int) -> np.array:
         # ToDo test
         """

@@ -22,6 +22,7 @@ MetaXtract is a hybrid tool for extracting, analysing, and visualising data from
   - MS1 and MS2 scan headers
   - MS1 and MS2 technical trailer details
   - MS1 and MS2 peak lists with the extended peak list of MS2
+- Converts RAW MS2 spectra to standard MGF with scan progress and cancellation
 - Exports data as:
   - CSV / TSV
   - Parquet (peak lists)
@@ -68,6 +69,117 @@ python main.py
 ### Running the CLI (Windows/Linux)
 ```bash
 python main.py --config /path/to/config.yml
+```
+
+### Convert RAW files to MGF
+
+In the GUI, check **Convert to MGF (MS2 spectra)**, select one or more RAW
+files and an output directory, then click **Run**. The progress bar and label
+show the current file, scans examined, and spectra written. **Stop** cancels
+conversion without publishing partial MGF files. Select other outputs to run
+conversion alongside metadata extraction, or leave them unchecked for MGF only.
+
+```bash
+python main.py --input data/small.RAW data/MS2_MS1_orbitrap.raw \
+  --output-dir output/mgf --convert-mgf
+```
+
+The exporter writes `<output-dir>/<sample>/<sample>.mgf` and a companion
+`<sample>.mgf.metadata.tsv`. Equal sample basenames from different directories
+receive stable path-based suffixes. Duplicate input paths are processed once.
+Existing MGF or companion files are protected; use `--mgf-overwrite` or the GUI's
+**Replace existing MGF outputs** option to replace them.
+
+Each MS2 spectrum uses standard `BEGIN IONS` / `END IONS` blocks, with `TITLE`,
+`SCANS`, `PEPMASS` (m/z), optional `CHARGE` and `RTINSECONDS`, followed by sorted
+fragment m/z and intensity pairs. RAW retention times are converted from minutes
+to seconds. Intensities are preserved; nonfinite values, nonpositive m/z values,
+and negative intensities are discarded. Unknown charge is omitted. The default
+`centroid` peak mode also discards zero-intensity points, uses stored centroids
+where available, and otherwise uses Thermo's centroiding API for profile scans.
+Select **Recorded peaks** in the GUI or pass `--mgf-peak-mode recorded` to preserve
+profile points and zeros, matching an msconvert export without peak picking.
+Reference/exception-labelled peaks are included in both modes. Full-precision
+monoisotopic m/z is read from the typed trailer API, avoiding the rounded values
+in Thermo's formatted metadata.
+Scans that cannot be read or centroided are skipped with a reason in the TSV.
+A file with no exportable MS2 spectra fails without publishing an empty MGF.
+
+MGF precursor policies (`--mgf-acquisition`, also available in the GUI):
+
+| Policy | Behavior |
+| --- | --- |
+| `recorded` (default) | Preserve valid recorded monoisotopic precursor m/z, falling back to the isolation-target m/z. Acquisition type is not inferred. Suitable for batches containing files with different acquisition methods when that distinction is not known. |
+| `dda` | Apply the recorded precursor policy, label the acquisition as DDA, and fill missing precursor intensity by summing stored MS1 signal within +/-1.5 m/z of the isolation target, matching msconvert's query window. Parent MS1 arrays are cached. This is a window intensity, not an individual peptide intensity. |
+| `dia` | Export each recorded MS2 window spectrum using its isolation-target m/z as `PEPMASS`; omit precursor charge and intensity. |
+
+Isolation-target `PEPMASS` values are labelled in `TITLE` and the companion TSV;
+they do not identify individual precursors. Recorded/DDA export preserves known
+recorded charge and intensity even when monoisotopic m/z is missing; explicit DIA
+mode omits them. DIA conversion does **not** deconvolve spectra or generate pseudo-DDA spectra for a
+conventional peptide search. MGF cannot preserve all RAW acquisition information;
+keep the source files and companion TSV, which records isolation width/offset,
+precursor m/z source, polarity, centroid source, and skipped-scan reasons.
+See [MGF format documentation](https://www.matrixscience.com/help/data_file_help.html)
+and [DIA/chimeric spectra](https://www.matrixscience.com/help/chimeric_spectra.html).
+
+For an explicitly DIA run:
+
+```bash
+python main.py --input sample.raw --output-dir output/mgf \
+  --convert-mgf --mgf-acquisition dia
+```
+
+To reproduce profile peak lists like the supplied DDA msconvert reference:
+
+```bash
+python main.py --input sample.raw --output-dir output/mgf \
+  --convert-mgf --mgf-acquisition dda --mgf-peak-mode recorded
+```
+
+The companion TSV records peak mode/source, precursor intensity source, and the
+parent MS1 scan. Metadata titles and numeric text formatting can differ from
+msconvert while representing equivalent spectra. Compare exports by original
+scan number using the bounded-memory comparison tool:
+
+```bash
+python scripts/compare_mgf.py --reference msconvert.mgf \
+  --candidate output/mgf/sample/sample.mgf --output comparison.json
+```
+
+Equivalent YAML settings (other exports can be enabled independently):
+
+```yaml
+io:
+  input: [data/small.RAW]
+  output_dir: output/mgf
+outputs:
+  convert_mgf: true
+mgf:
+  acquisition: recorded
+  peak_mode: centroid
+  overwrite: false
+```
+
+CLI runs show scan progress and a per-file summary. Conversion failures are
+reported while remaining input files continue; the CLI exits with status 1 if
+any MGF file failed, or 130 on cancellation.
+
+Python callers can reuse the same exporter with an open reader:
+
+```python
+from raw_parser import MetaXtract
+from mgf_exporter import MGFExporter
+
+reader = MetaXtract("sample.raw")
+try:
+    summary = MGFExporter().export(
+        reader, "output/sample.mgf",
+        on_progress=lambda examined, total, written: print(examined, total, written),
+    )
+    print(summary.describe())
+finally:
+    reader.CloseRAWFile()
 ```
 
 ### Running with Docker or Apptainer/Singularity

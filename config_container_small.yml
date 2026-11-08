@@ -11,6 +11,7 @@ outputs:
   ms1_peaklist_export: true
   ms2_technical_details_export: false
   ms1_technical_details_export: false
+  convert_mgf: false
   hdf5_export: false
 
 scan_header:

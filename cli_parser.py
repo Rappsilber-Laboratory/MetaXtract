@@ -11,6 +11,8 @@ import csv, json
 from pathlib import Path
 
 from raw_parser import MetaXtract
+from tqdm import tqdm
+from mgf_exporter import MGFExporter, plan_mgf_outputs
 from anndata_export import export_ms2_to_h5ad
 from plotly_visualizer import (
     PlotlyMS1Visualizer,
@@ -589,6 +591,15 @@ def run_cli(args):
         getattr(args, "ms1_technical_details_export", False) or cfg_outputs.get("ms1_technical_details_export", False)
     )
 
+    convert_mgf = bool(getattr(args, "convert_mgf", False) or cfg_outputs.get("convert_mgf", False))
+    cfg_mgf = _cfg_get(cfg, ["mgf"], {}) or {}
+    mgf_exporter = MGFExporter(
+        acquisition=getattr(args, "mgf_acquisition", None) or cfg_mgf.get("acquisition", "recorded"),
+        overwrite=bool(getattr(args, "mgf_overwrite", False) or cfg_mgf.get("overwrite", False)),
+        peak_mode=getattr(args, "mgf_peak_mode", None) or cfg_mgf.get("peak_mode", "centroid"),
+    ) if convert_mgf else None
+    mgf_failures = 0
+
     cfg_vis = _cfg_get(cfg, ["visualisation"], {}) or {}
     graphical_representation = bool(getattr(args, "graphical_representation", False) or cfg_vis.get("enabled", False))
     fmt = (cfg_vis.get("format", "html") or "html").lower().strip()
@@ -624,6 +635,13 @@ def run_cli(args):
             sys.exit(1)
 
     proc_inputs = cmp_inputs if (multi_cmp and cmp_inputs) else inputs
+    if convert_mgf:
+        proc_inputs = list(dict.fromkeys(str(Path(p).resolve()) for p in proc_inputs))
+    mgf_outputs = plan_mgf_outputs(proc_inputs, outdir) if convert_mgf else {}
+    if convert_mgf:
+        print(f"[INFO] MGF precursor policy: {mgf_exporter.acquisition}. "
+              "DIA mode omits precursor charge/intensity; "
+              "this conversion does not deconvolve DIA spectra.")
 
     sdrf_rows = []
     sdrf_draft_rows = []
@@ -656,19 +674,26 @@ def run_cli(args):
     ms2_box_tic, ms2_box_bpi, ms2_box_tnp = {}, {}, {}
 
 
-    for input_file in proc_inputs:
+    for file_index, input_file in enumerate(proc_inputs, 1):
+        mgf_failed = False
         if stop_event.is_set():
             break
         if not os.path.exists(input_file):
             print(f"[ERROR] Input file '{input_file}' does not exist.")
+            if convert_mgf:
+                mgf_failures += 1
             continue
 
         print(f"[INFO] Processing: {input_file}")
         start_file_usage(input_file)
         try:
             raw_parser = MetaXtract(input_file)
-        except Exception:
+        except Exception as exc:
             finish_file_usage("Failed")
+            if convert_mgf:
+                mgf_failures += 1
+                print(f"[ERROR] Could not open {input_file}: {exc}")
+                continue
             raise
 
         instrument = raw_instrument_name(raw_parser)
@@ -700,6 +725,28 @@ def run_cli(args):
         sample_out = os.path.join(outdir, base)
         os.makedirs(sample_out, exist_ok=True)
         
+        if convert_mgf:
+            try:
+                total = max(0, raw_parser.LastSpectrumNumber - raw_parser.FirstSpectrumNumber + 1)
+                with tqdm(total=total, desc=f"MGF {file_index}/{len(proc_inputs)} {base}", unit="scan") as bar:
+                    def mgf_progress(examined, total, written):
+                        bar.set_postfix(spectra=written, refresh=False)
+                        bar.update(examined - bar.n)
+                    summary = mgf_exporter.export(
+                        raw_parser, mgf_outputs[str(Path(input_file).resolve())],
+                        on_progress=mgf_progress, should_stop=stop_event.is_set,
+                    )
+                print(f"[INFO] {summary.describe()}")
+            except InterruptedError:
+                stop_event.set()
+            except Exception as exc:
+                mgf_failed = True
+                mgf_failures += 1
+                print(f"[ERROR] MGF conversion failed for {input_file}: {exc}")
+            if stop_event.is_set():
+                raw_parser.CloseRAWFile()
+                break
+
         info_tsv_path = None
         if file_based_details:
             file_details_path = os.path.join(sample_out, f"{base}_info.tsv")
@@ -833,7 +880,7 @@ def run_cli(args):
 
         raw_parser.CloseRAWFile()
         print(f"[INFO] Done: {input_file}")
-        finish_file_usage("Finished")
+        finish_file_usage("Failed" if mgf_failed else "Finished")
         print()
 
     if stop_event.is_set():
@@ -891,3 +938,9 @@ def run_cli(args):
             ],
         )
         print(f"[VIS] MS2 comparison: {out}")
+
+    if convert_mgf and stop_event.is_set():
+        sys.exit(130)
+    if mgf_failures:
+        print(f"[ERROR] MGF conversion failed for {mgf_failures} file(s).")
+        sys.exit(1)
