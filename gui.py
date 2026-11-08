@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 )
 
 from raw_parser import MetaXtract
+from mgf_exporter import MGFExporter, plan_mgf_outputs
 from version import VERSION
 from plotly_visualizer import (
     PlotlyMS1Visualizer,
@@ -282,6 +283,7 @@ class LogWindow(QDialog):
 
 class _ExtractionWorker(QObject):
     progress = Signal(int)
+    progress_text = Signal(str)
     log = Signal(str)
     finished = Signal()
     failed = Signal(str)
@@ -302,7 +304,11 @@ class _ExtractionWorker(QObject):
         ms2_peaklist_export: bool = False,
         ms1_peaklist_export: bool = False,
         ms2_technical_details_export: bool = False,
-        ms1_technical_details_export: bool = False
+        ms1_technical_details_export: bool = False,
+        convert_mgf: bool = False,
+        mgf_acquisition: str = "recorded",
+        mgf_overwrite: bool = False,
+        mgf_peak_mode: str = "centroid",
         
     ):
         super().__init__()
@@ -321,6 +327,8 @@ class _ExtractionWorker(QObject):
         self.ms1_technical_details_export = bool(ms1_technical_details_export)
         self.cmp_files = (cmp_files or [])
         self.sdrf_payload = sdrf_payload or {}
+        self.convert_mgf = bool(convert_mgf)
+        self.mgf_exporter = MGFExporter(mgf_acquisition, mgf_overwrite, peak_mode=mgf_peak_mode)
         self._stop_event = threading.Event()
         self._current_raw_parser = None
         self._file_usage_monitor: FileUsageMonitor | None = None
@@ -717,16 +725,33 @@ class _ExtractionWorker(QObject):
             self.log.emit(f"[METRICS] Runtime TSV: {self._runtime_log_path}")
             cmp_set = set(self.cmp_files) if (self.multi_cmp and self.cmp_files) else None
 
-            for selected_file in self.selected_files:
-                if cmp_set is not None and selected_file not in cmp_set:
-                    continue
+            processed_files = [p for p in self.selected_files if cmp_set is None or p in cmp_set]
+            if self.convert_mgf:
+                processed_files = list(dict.fromkeys(str(Path(p).resolve()) for p in processed_files))
+            mgf_outputs = plan_mgf_outputs(processed_files, global_out) if self.convert_mgf else {}
+            mgf_failures = []
+            if self.convert_mgf:
+                self.log.emit(f"[INFO] MGF precursor policy: {self.mgf_exporter.acquisition}. "
+                              "DIA mode omits precursor charge/intensity. "
+                              "This conversion does not deconvolve DIA spectra.")
+
+            for file_index, selected_file in enumerate(processed_files, 1):
+                mgf_failed = False
                 if self.should_stop():
                     break
 
                 self.log.emit(f"[INFO] Processing: {selected_file}")
                 self._start_file_usage(selected_file)
 
-                raw_parser = MetaXtract(selected_file)
+                try:
+                    raw_parser = MetaXtract(selected_file)
+                except Exception as exc:
+                    if not self.convert_mgf:
+                        raise
+                    mgf_failures.append(selected_file)
+                    self.log.emit(f"[ERROR] Could not open {selected_file}: {exc}")
+                    self._finish_file_usage("Failed")
+                    continue
                 self._current_raw_parser = raw_parser
                 base = os.path.splitext(os.path.basename(selected_file))[0]
                 out_dir = Path(self.output_dir_raw) / base
@@ -756,6 +781,30 @@ class _ExtractionWorker(QObject):
                 if self.plotly_enabled and not self.selected_header_options_ms1:
                     self.selected_header_options_ms1 = ["Scan Start Time (min)"]
                     
+                if self.convert_mgf:
+                    try:
+                        def mgf_progress(examined, total, written):
+                            self.progress.emit(min(99, int(examined * 100 / max(1, total))))
+                            self.progress_text.emit(
+                                f"MGF · File {file_index}/{len(processed_files)} · {base} · "
+                                f"{examined}/{total} scans · {written} spectra written"
+                            )
+                        summary = self.mgf_exporter.export(
+                            raw_parser, mgf_outputs[str(Path(selected_file).resolve())],
+                            on_progress=mgf_progress, should_stop=self.should_stop,
+                        )
+                        self.progress.emit(100)
+                        self.log.emit(f"[INFO] {summary.describe()}")
+                    except InterruptedError:
+                        raise
+                    except Exception as exc:
+                        mgf_failed = True
+                        mgf_failures.append(selected_file)
+                        self.log.emit(f"[ERROR] MGF conversion failed for {selected_file}: {exc}")
+                    if self.should_stop():
+                        break
+                    self.progress_text.emit(f"File {file_index}/{len(processed_files)} · {base} · completing exports")
+
                 info_tsv_path = None
                 if "File-based Details" in self.selected_options:
                     info_tsv = out_dir / f"{base}_info_{datetime.now().strftime('%Y%m%d_%H%M%S')}.tsv"
@@ -899,7 +948,7 @@ class _ExtractionWorker(QObject):
                 self._current_raw_parser = None
                 self.progress.emit(100)
                 self.log.emit(f"[INFO] Finished: {selected_file}")
-                self._finish_file_usage("Finished")
+                self._finish_file_usage("Failed" if mgf_failed else "Finished")
                 self.log.emit("")
 
             if self.should_stop():
@@ -952,11 +1001,17 @@ class _ExtractionWorker(QObject):
                     extra_columns=self.sdrf_payload.get("extra_columns", []),
                 )
                 self.log.emit(f"[INFO] SDRF-Proteomics metadata: {out}")
-            self.finished.emit()
+            if mgf_failures:
+                self.progress_text.emit(f"MGF conversion failed for {len(mgf_failures)} file(s); see log")
+                self.failed.emit("MGF conversion failed for:\n" + "\n".join(mgf_failures) + "\nSee the log for details.")
+            else:
+                self.progress_text.emit("Stopped" if self.should_stop() else "Finished")
+                self.finished.emit()
         except InterruptedError:
             self._close_current_raw_file()
             self._finish_file_usage("Stopped")
             self.log.emit("[INFO] Processing stopped.")
+            self.progress_text.emit("Stopped")
             self.finished.emit()
         except Exception as e:
             self._close_current_raw_file()
@@ -1585,6 +1640,27 @@ class MetaXtract_GUI(QMainWindow):
         self.cb_ms2_technical_details = QCheckBox("Export MS2 technical details", self)
         self.cb_ms1_technical_details = QCheckBox("Export MS1 technical details", self)
         self.cb_sdrf = QCheckBox("Export SDRF-Proteomics metadata (.sdrf.tsv)", self)
+        self.cb_mgf = QCheckBox("Convert to MGF (MS2 spectra)", self)
+        self.mgf_acquisition = QComboBox(self)
+        self.mgf_acquisition.addItem("Use recorded precursor data", "recorded")
+        self.mgf_acquisition.addItem("DDA", "dda")
+        self.mgf_acquisition.addItem("DIA window spectra", "dia")
+        self.mgf_acquisition.setToolTip(
+            "Recorded: preserve available precursor data without guessing DDA/DIA. "
+            "DIA: use isolation-target m/z and omit precursor charge/intensity."
+        )
+        self.mgf_acquisition.setEnabled(False)
+        self.mgf_peak_mode = QComboBox(self)
+        self.mgf_peak_mode.addItem("Centroid peaks (default)", "centroid")
+        self.mgf_peak_mode.addItem("Recorded peaks (preserve profile data)", "recorded")
+        self.mgf_peak_mode.setToolTip("Use recorded peaks to match an msconvert export without peak picking, including zero-intensity profile points.")
+        self.mgf_peak_mode.setEnabled(False)
+        self.cb_mgf_overwrite = QCheckBox("Replace existing MGF outputs", self)
+        self.cb_mgf_overwrite.setEnabled(False)
+        self.mgf_note = QLabel("DIA export keeps window spectra; it does not separate individual precursors.", self)
+        self.mgf_note.setWordWrap(True)
+        self.mgf_note.setVisible(False)
+        self.cb_mgf.toggled.connect(self._mgf_selection_changed)
         #self.cb_hdf5 = QCheckBox("AnnData (HDF5 .h5ad) [MS2 only]", self)
         
         self.cb_multi_cmp = QCheckBox("Multi-sample comparison (choose 2 or more samples)", self)
@@ -1599,6 +1675,17 @@ class MetaXtract_GUI(QMainWindow):
         opt.addWidget(self.cb_ms2_technical_details)
         opt.addWidget(self.cb_ms1_technical_details)
         opt.addWidget(self.cb_sdrf)
+        opt.addWidget(self.cb_mgf)
+        mgf_options = QHBoxLayout()
+        mgf_options.addWidget(QLabel("MGF precursor data", self))
+        mgf_options.addWidget(self.mgf_acquisition)
+        mgf_options.addWidget(self.cb_mgf_overwrite)
+        opt.addLayout(mgf_options)
+        mgf_peaks = QHBoxLayout()
+        mgf_peaks.addWidget(QLabel("MGF peaks", self))
+        mgf_peaks.addWidget(self.mgf_peak_mode, 1)
+        opt.addLayout(mgf_peaks)
+        opt.addWidget(self.mgf_note)
         #opt.addWidget(self.cb_hdf5)
         main.addWidget(gb_opt)
 
@@ -1682,6 +1769,9 @@ class MetaXtract_GUI(QMainWindow):
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setRange(0, 100)
         run.addWidget(self.progress_bar)
+        self.progress_label = QLabel("Ready", self)
+        self.progress_label.setWordWrap(True)
+        run.addWidget(self.progress_label)
 
         rr = QHBoxLayout()
         self.btn_run = QPushButton("Run", self)
@@ -1722,8 +1812,16 @@ class MetaXtract_GUI(QMainWindow):
             QApplication.restoreOverrideCursor()
         return detected, failures
 
+    def _mgf_selection_changed(self, enabled):
+        self.mgf_acquisition.setEnabled(enabled)
+        self.mgf_peak_mode.setEnabled(enabled)
+        self.cb_mgf_overwrite.setEnabled(enabled)
+        self.mgf_note.setVisible(enabled)
+        if enabled and not self.selected_files:
+            self.select_files()
+
     def select_files(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "Select RAW files", "", "RAW Files (*.raw);;All Files (*)")
+        files, _ = QFileDialog.getOpenFileNames(self, "Select RAW files", "", "RAW Files (*.raw *.RAW);;All Files (*)")
         if files:
             self.selected_files = files
             self.file_field.setText("; ".join(map(str, files)))
@@ -1825,6 +1923,7 @@ class MetaXtract_GUI(QMainWindow):
         ms2_technical_details_export = self.cb_ms2_technical_details.isChecked()
         ms1_technical_details_export = self.cb_ms1_technical_details.isChecked()
         sdrf_enabled = self.cb_sdrf.isChecked()
+        convert_mgf = self.cb_mgf.isChecked()
         #hdf5_export = self.cb_hdf5.isChecked()
         hdf5_export = False
         export_fmt = None
@@ -1885,6 +1984,7 @@ class MetaXtract_GUI(QMainWindow):
         self.log_window.show()
 
         self.progress_bar.setValue(0)
+        self.progress_label.setText("Starting")
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
 
@@ -1905,11 +2005,16 @@ class MetaXtract_GUI(QMainWindow):
             ms1_peaklist_export=ms1_peaklist_export,
             ms2_technical_details_export=ms2_technical_details_export,
             ms1_technical_details_export=ms1_technical_details_export,
+            convert_mgf=convert_mgf,
+            mgf_acquisition=self.mgf_acquisition.currentData(),
+            mgf_overwrite=self.cb_mgf_overwrite.isChecked(),
+            mgf_peak_mode=self.mgf_peak_mode.currentData(),
         )
         self._worker.moveToThread(self._thread)
 
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self.progress_bar.setValue, Qt.QueuedConnection)
+        self._worker.progress_text.connect(self.progress_label.setText, Qt.QueuedConnection)
         self._worker.log.connect(self.log_window.append_log, Qt.QueuedConnection)
         self._worker.finished.connect(self._on_done, Qt.QueuedConnection)
         self._worker.failed.connect(self._on_fail, Qt.QueuedConnection)

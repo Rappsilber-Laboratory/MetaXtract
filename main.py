@@ -21,6 +21,7 @@ def _is_cli(args: argparse.Namespace) -> bool:
             bool(getattr(args, "graphical_representation", False)),
             bool(getattr(args, "complete_ms1", False)),
             bool(getattr(args, "complete_ms2", False)),
+            bool(getattr(args, "convert_mgf", False)),
             bool(getattr(args, "ms2_peaklist_export", False)),
             bool(getattr(args, "ms1_peaklist_export", False)),
             bool(getattr(args, "sdrf_draft", False)),
@@ -38,6 +39,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p.add_argument("--input", nargs="+", help="Path(s) to RAW files (overrides config io.input)")
     p.add_argument("--output-dir", dest="output_dir", help="Output directory (overrides config io.output_dir)")
+
+    p.add_argument("--convert-mgf", action="store_true", help="Convert RAW MS2 spectra to standard MGF")
+    p.add_argument("--mgf-acquisition", choices=("recorded", "dda", "dia"), default=None,
+                   help="MGF precursor policy: recorded (default), dda, or dia window spectra")
+    p.add_argument("--mgf-peak-mode", choices=("centroid", "recorded"), default=None,
+                   help="MGF peaks: centroid (default) or recorded (preserve profile points and zeros)")
+    p.add_argument("--mgf-overwrite", action="store_true", help="Allow replacement of existing MGF outputs")
 
     p.add_argument("--file-based-details", dest="file_based_details", action="store_true", help="Extract file-based details")
     p.add_argument("--ms-method", dest="ms_method", action="store_true", help="Extract MS method")

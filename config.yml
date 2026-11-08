@@ -12,6 +12,14 @@ outputs:
   ms1_peaklist_export: true
   ms2_technical_details_export: false
   ms1_technical_details_export: false
+  convert_mgf: false
+
+mgf:
+  # recorded preserves usable recorded precursor data without guessing DDA/DIA.
+  # dia exports isolation-window spectra; it does not deconvolve precursors.
+  acquisition: recorded  # recorded | dda | dia
+  peak_mode: centroid    # centroid | recorded (keep profile points and zeros)
+  overwrite: false
 
 visualisation:
   enabled: true
